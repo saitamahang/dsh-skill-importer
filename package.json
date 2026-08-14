@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-importer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web UI plugin for DeepSeek Harness: import skills from local Markdown files or URLs into the skill roots the harness discovers automatically",
   "type": "module",
   "main": "lib/index.js",
