@@ -78,5 +78,13 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/saitamahang/dsh-skill-importer.git"
-  }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "skill",
+    "agent",
+    "plugin"
+  ]
 }
