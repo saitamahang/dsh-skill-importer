@@ -1,0 +1,125 @@
+/**
+ * Locale dictionaries for the skill importer settings section.
+ *
+ * Product copy is Chinese; English is the fallback dictionary.
+ * The key-set source of truth is the zh dictionary (`keyof typeof zh`),
+ * matching the locale contract's namespace-key union shape.
+ */
+
+/** Dictionary namespace owned by this plugin. */
+export const NS = 'skills.importer'
+
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
+  nav: '技能',
+  // Composer entries
+  pickerLabel: '技能',
+  pickerPlaceholder: '技能',
+  pickerSearchPlaceholder: '筛选技能…',
+  pickerEmpty: '没有匹配的技能',
+  commandDescription: '选择技能：弹出技能列表，选中后填入 /<名称>',
+  // Section rows
+  entryTitle: '技能入口',
+  entryDescription: '通过输入框工具行的技能下拉或 /skills 命令选择技能；也可直接输入 /<名称>。选中的技能会高亮并注入指令。',
+  installedTitle: '已安装技能',
+  refresh: '刷新',
+  installedEmpty: '暂无技能。导入新技能或手动放入技能目录后会自动出现。',
+  sourceAgents: '工作区 .agents/skills',
+  sourceDsh: '工作区 .dsh/skills',
+  sourceUser: '用户技能目录',
+  delete: '删除',
+  deleteConfirm: '确定删除技能 {name} 吗？将删除对应目录下的 SKILL.md 及资源文件。',
+  deleteFailed: '删除失败',
+  deleted: '已删除。',
+  installedFailed: '无法读取技能列表',
+  userOnly: '仅斜杠可用',
+  modelOnly: '仅模型可用',
+  importTitle: '导入技能',
+  fileTab: '从文件',
+  urlTab: '从 URL',
+  chooseFile: '选择 Markdown 文件',
+  fileHelp: 'SKILL.md 或 <名称>.md，需带 frontmatter（name、description 必填）。选择后先预览，再点击导入。',
+  previewTitle: '文件预览',
+  previewName: '名称',
+  previewDescription: '描述',
+  previewWhenToUse: '适用场景',
+  previewMissingName: 'frontmatter 缺少 name 字段',
+  previewInvalidName: 'name 必须是 kebab-case（小写字母、数字、短横线）',
+  previewMissingDescription: 'frontmatter 缺少 description 字段',
+  previewOk: '校验通过，可以导入',
+  fileTooLarge: '文件过大（超过 256 KB，请精简后重试）',
+  unreadableFile: '无法读取文件',
+  urlLabel: '技能 URL',
+  urlNameLabel: '技能名称',
+  urlNameHelp: 'kebab-case；留空则从 URL 自动推导',
+  targetLabel: '安装到',
+  targetUser: '用户技能目录（~/.dsh/skills）',
+  targetProjectAgents: '当前工作区 {title} 的 .agents/skills',
+  targetProjectDsh: '当前工作区 {title} 的 .dsh/skills',
+  targetProjectNoWorkspace: '项目目录（需先添加工作区）',
+  noWorkspace: '未注册工作区：请先在会话页选择/创建工作区，或改用用户技能目录。',
+  import: '导入',
+  importing: '导入中…',
+  imported: '已写入：',
+  importFailed: '导入失败',
+  hostUnreachable: '无法连接 dsh 服务（插件路由未生效）。请确认插件已安装，并重启 dsh web 后刷新页面。',
+} satisfies Record<string, string>
+
+/** The skill importer namespace key union. */
+export type SkillImporterKey = keyof typeof zh
+
+/** English dictionary, checked complete against the zh key set. */
+export const en = {
+  nav: 'Skills',
+  // Composer entries
+  pickerLabel: 'Skills',
+  pickerPlaceholder: 'Skills',
+  pickerSearchPlaceholder: 'Filter skills…',
+  pickerEmpty: 'No matching skills',
+  commandDescription: 'Pick a skill: opens a popup list; selecting fills /<name>',
+  // Section rows
+  entryTitle: 'Skill entry points',
+  entryDescription: 'Pick a skill from the composer tool-row dropdown or the /skills command; or type /<name> directly. The picked skill is highlighted and its instructions are injected.',
+  installedTitle: 'Installed skills',
+  refresh: 'Refresh',
+  installedEmpty: 'No skills yet. Import one or drop files into a skill directory and they will appear automatically.',
+  sourceAgents: 'Workspace .agents/skills',
+  sourceDsh: 'Workspace .dsh/skills',
+  sourceUser: 'User skill directory',
+  delete: 'Delete',
+  deleteConfirm: 'Delete the skill {name}? This removes its SKILL.md and resources from that directory.',
+  deleteFailed: 'Failed to delete',
+  deleted: 'Deleted.',
+  installedFailed: 'Unable to read the skill list',
+  userOnly: 'Slash only',
+  modelOnly: 'Model only',
+  importTitle: 'Import a skill',
+  fileTab: 'From file',
+  urlTab: 'From URL',
+  chooseFile: 'Choose a Markdown file',
+  fileHelp: 'SKILL.md or <name>.md with frontmatter (name and description required). Preview first, then import.',
+  previewTitle: 'File preview',
+  previewName: 'Name',
+  previewDescription: 'Description',
+  previewWhenToUse: 'When to use',
+  previewMissingName: 'frontmatter is missing the name field',
+  previewInvalidName: 'name must be kebab-case (lowercase letters, digits, hyphens)',
+  previewMissingDescription: 'frontmatter is missing the description field',
+  previewOk: 'Valid, ready to import',
+  fileTooLarge: 'File too large (over 256 KB; trim it and retry)',
+  unreadableFile: 'Unable to read the file',
+  urlLabel: 'Skill URL',
+  urlNameLabel: 'Skill name',
+  urlNameHelp: 'kebab-case; leave empty to derive from the URL',
+  targetLabel: 'Install into',
+  targetUser: 'User skill directory (~/.dsh/skills)',
+  targetProjectAgents: 'Workspace {title} .agents/skills',
+  targetProjectDsh: 'Workspace {title} .dsh/skills',
+  targetProjectNoWorkspace: 'Project directory (add a workspace first)',
+  noWorkspace: 'No registered workspace: create/select one in a session, or use the user skill directory.',
+  import: 'Import',
+  importing: 'Importing…',
+  imported: 'Written to: ',
+  importFailed: 'Import failed',
+  hostUnreachable: 'Cannot reach the dsh service (plugin routes are not active). Make sure the plugin is installed, restart dsh web, and refresh the page.',
+} satisfies Record<SkillImporterKey, string>

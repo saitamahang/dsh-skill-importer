@@ -1,0 +1,7 @@
+# Dependencies and build artifacts (npm install + npm run build regenerate them)
+node_modules/
+lib/
+
+# Logs and OS cruft
+*.log
+.DS_Store
