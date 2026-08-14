@@ -5,3 +5,4 @@ lib/
 # Logs and OS cruft
 *.log
 .DS_Store
+.npm-cache/
