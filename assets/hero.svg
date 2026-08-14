@@ -1,0 +1,55 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="62" y1="16" x2="1127" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09111F"/>
+      <stop offset="0.55" stop-color="#111D35"/>
+      <stop offset="1" stop-color="#08101D"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="316" y1="140" x2="845" y2="369" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#62E6C5"/>
+      <stop offset="0.52" stop-color="#68A7FF"/>
+      <stop offset="1" stop-color="#A786FF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(600 248) rotate(90) scale(300 580)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3867C8" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#07101D" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-100" y="-100" width="1400" height="720" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="55"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="520" rx="28" fill="url(#bg)"/>
+  <ellipse cx="600" cy="276" rx="520" ry="250" fill="url(#glow)" filter="url(#blur)"/>
+  <g opacity=".18" stroke="#9CB7E6">
+    <path d="M0 86H1200M0 174H1200M0 262H1200M0 350H1200M0 438H1200"/>
+    <path d="M106 0V520M282 0V520M458 0V520M634 0V520M810 0V520M986 0V520M1162 0V520"/>
+  </g>
+  <g transform="translate(96 86)">
+    <rect width="74" height="74" rx="20" fill="#132541" stroke="#31537E"/>
+    <path d="M21 24.5C21 20.91 23.91 18 27.5 18H46.5C50.09 18 53 20.91 53 24.5V49.5C53 53.09 50.09 56 46.5 56H27.5C23.91 56 21 53.09 21 49.5V24.5Z" fill="url(#accent)"/>
+    <path d="M29 29H45M29 37H45M29 45H39" stroke="#09111F" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <text x="194" y="119" fill="#B9C9E7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="4">DEEPSEEK HARNESS PLUGIN</text>
+  <text x="96" y="242" fill="#F4F8FF" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="62" font-weight="700" letter-spacing="-2">Skills, right where</text>
+  <text x="96" y="313" fill="url(#accent)" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="62" font-weight="700" letter-spacing="-2">you need them.</text>
+  <text x="99" y="365" fill="#AFC0DE" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22">Import · discover · invoke — without leaving the dsh Web UI.</text>
+  <g transform="translate(98 410)" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="600">
+    <rect width="146" height="42" rx="21" fill="#152A3C" stroke="#285669"/><circle cx="24" cy="21" r="5" fill="#62E6C5"/><text x="39" y="27" fill="#CDEEE7">No session</text>
+    <g transform="translate(160)"><rect width="148" height="42" rx="21" fill="#172640" stroke="#2C4F7B"/><circle cx="24" cy="21" r="5" fill="#68A7FF"/><text x="39" y="27" fill="#D5E4FF">Zero tokens</text></g>
+    <g transform="translate(322)"><rect width="166" height="42" rx="21" fill="#211E40" stroke="#514583"/><circle cx="24" cy="21" r="5" fill="#A786FF"/><text x="39" y="27" fill="#E4DAFF">Instant refresh</text></g>
+  </g>
+  <g transform="translate(843 81)">
+    <rect width="269" height="344" rx="24" fill="#0B1424" stroke="#314664" stroke-width="2"/>
+    <circle cx="25" cy="25" r="5" fill="#FF6B6B"/><circle cx="43" cy="25" r="5" fill="#FFD166"/><circle cx="61" cy="25" r="5" fill="#62E6C5"/>
+    <text x="23" y="78" fill="#7186A8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">SKILL PICKER</text>
+    <rect x="20" y="96" width="229" height="43" rx="11" fill="#121F33" stroke="#314664"/>
+    <text x="37" y="123" fill="#7186A8" font-family="Inter, sans-serif" font-size="14">Search skills…</text>
+    <g font-family="Inter, sans-serif" font-size="15" fill="#E5EDFC">
+      <circle cx="43" cy="173" r="18" fill="#183B44"/><text x="37" y="179" fill="#62E6C5" font-weight="700">D</text><text x="74" y="179">doc-writer</text>
+      <circle cx="43" cy="225" r="18" fill="#182F50"/><text x="38" y="231" fill="#68A7FF" font-weight="700">R</text><text x="74" y="231">release-notes</text>
+      <circle cx="43" cy="277" r="18" fill="#2D2850"/><text x="38" y="283" fill="#A786FF" font-weight="700">T</text><text x="74" y="283">test-runner</text>
+    </g>
+    <rect x="20" y="313" width="229" height="1" fill="#243650"/>
+    <text x="24" y="334" fill="#7186A8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">/skills  ·  /skill-name</text>
+  </g>
+</svg>

@@ -1,0 +1,6 @@
+# dsh-skill-importer bundle patch: one plugin row, applied as a bundle layer.
+# Declared by the package's dsh.bundle manifest; `dsh plugin --profile <p> add
+# dsh-skill-importer` appends it to the profile's bundle stack automatically.
+- insert:
+    - id: skill-importer
+      name: 'dsh-skill-importer'

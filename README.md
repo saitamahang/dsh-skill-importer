@@ -1,107 +1,132 @@
-# dsh-skill-importer
+<div align="center">
+  <img src="assets/hero.svg" alt="dsh-skill-importer — Skills, right where you need them" width="100%" />
 
-English | [中文](README.zh.md)
+  <br />
 
-[![npm version](https://img.shields.io/npm/v/dsh-skill-importer)](https://www.npmjs.com/package/dsh-skill-importer)
-[![npm downloads](https://img.shields.io/npm/dm/dsh-skill-importer)](https://www.npmjs.com/package/dsh-skill-importer)
-[![License: MIT](https://img.shields.io/npm/l/dsh-skill-importer)](LICENSE)
+  <strong>Bring skill management into the DeepSeek Harness Web UI.</strong><br />
+  Import, discover, and invoke skills without a session, model tokens, or approval round-trips.
 
-A skill management plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Import, list, and delete skills directly from the Web UI — no agent, no session, no model tokens, no approval round-trips. Files land on disk immediately and the harness hot-discovers them.
+  <br /><br />
 
-## Features
+  [![npm](https://img.shields.io/npm/v/dsh-skill-importer?style=flat-square&color=5dd8bd&label=npm)](https://www.npmjs.com/package/dsh-skill-importer)
+  [![downloads](https://img.shields.io/npm/dm/dsh-skill-importer?style=flat-square&color=6da8ff)](https://www.npmjs.com/package/dsh-skill-importer)
+  [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek_Harness-%E2%89%A50.1.0--rc.6-5965f2?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+  [![license](https://img.shields.io/badge/license-MIT-a786ff?style=flat-square)](LICENSE)
 
-- **Three skill entry points** — the `/` menu no longer lists skills directly:
-  1. **Composer tool-row picker** (next to the access-mode selector): a pill trigger with a name-filter search box, first-letter avatars, and bare skill names.
-  2. **`/skills` command** — modelled on `/model`: a popup list, name-only search, select fills `/name `.
-  3. **Type `/name` directly** — the native text gesture, highlighted and injected the same way.
-- **Installed list, grouped by location** — every copy in `.agents/skills`, `.dsh/skills`, and `~/.dsh/skills` is shown (no rank hiding on the management surface), with invocation markers and a delete button per copy.
-- **Workspace-aware targets** — project skills write into the active registered workspace (never the dsh process's cwd), matching how `/` and the model catalog resolve.
-- **Import from file** — pick a Markdown file (`SKILL.md` or `<name>.md`), frontmatter is parsed and validated (`name` kebab-case, `description` required), previewed, then written to `<target>/<name>/SKILL.md`.
-- **Import from URL** — the host fetches the URL (`.md` verbatim; HTML roughly extracted to text).
-- **Frontmatter normalization** — special characters in descriptions are quoted automatically, so strict-YAML discovery never silently skips a skill.
-- **Bilingual UI** — the settings section and picker copy follow the harness's zh/en locale, styled like the General settings rows.
+  <br />
 
-## How it works
+  **English** · [简体中文](README.zh.md) · [Install](#installation) · [How it works](#how-it-works) · [Development](#development)
+</div>
 
-dsh's client→host RPC is a hard-coded allowlist with no file-write channel, but [`dsh-host-webserver`](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/host/webserver) exposes the official route-registration extension point (`ctx.webServer.register`). The plugin registers `/skill-importer/*` routes on the harness's own same-origin server:
+---
 
-```
-browser reads file / user enters URL
-        │ fetch (same origin)
-        ▼
-host route /skill-importer/import (registered on ctx.webServer)
-        │ direct filesystem write (host process permissions — no sandbox, no approval)
-        ▼
-<target>/<name>/SKILL.md lands
-        │
-        ▼
-skill-filesystem watcher discovers it → skills/change → hot refresh
-```
+## Your skill library, one click away
 
-- **No session**: the host process writes; no agent, model, or session involved.
-- **No approval**: the host owns user permissions; the agent tool sandbox never applies.
-- **Secure**: routes live on the loopback-only server; `POST` routes verify the `Origin` header (only `127.0.0.1`/`localhost` sources pass).
+`dsh-skill-importer` is a lightweight plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). It turns skills into a first-class part of the Web UI: bring in Markdown from disk or a URL, see every installed copy, and insert a skill into the composer without breaking your flow.
 
-## Requirements
+| Import | Organize | Invoke |
+| :--- | :--- | :--- |
+| Upload `SKILL.md` or paste a URL. Frontmatter is validated and normalized before writing. | Browse skills grouped across project, legacy project, and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
 
-- DeepSeek Harness `>= 0.1.0-rc.6` (`npx @deepseek-ai/dsh web`)
+### Built for a fast loop
+
+- **No agent or session** — the host writes skill files directly.
+- **Zero model tokens** — imports never enter a model context.
+- **Instant discovery** — the harness watcher hot-refreshes skills after they land.
+- **Workspace-aware** — project skills always target the active registered workspace.
+- **Bilingual UI** — English and Chinese copy follows the harness locale.
+- **Safe by design** — fixed skill roots, 256 KB limit, and same-origin POST checks.
+
+## Three natural ways to use a skill
+
+1. **Composer picker** — open the pill beside the access-mode selector, search by name, and choose.
+2. **`/skills` command** — use a familiar command palette, modeled after `/model`.
+3. **Direct invocation** — type `/skill-name` and keep moving.
+
+All three fill the composer with the same highlighted `/name ` gesture; sending injects the skill instructions through dsh's native flow.
 
 ## Installation
 
-### From npm
+### 1. Add the plugin to the Web profile
 
 ```sh
-# 1. Install the package into the web profile
 dsh plugin --profile web add dsh-skill-importer
-
-# 2. Add a row to $DSH_HOME/profiles/web/cordis.patch.yml:
-#    - id: skill-importer
-#      name: 'dsh-skill-importer'
-
-# 3. Restart dsh web
 ```
 
-### From a local checkout (development)
+### 2. Enable it in the profile
 
-```sh
-npm install
-npm run build
-dsh plugin --profile web add /path/to/dsh-skill-importer
-# + the cordis.patch.yml row above, then restart dsh web
+Add the following entry to `$DSH_HOME/profiles/web/cordis.patch.yml`:
+
+```yaml
+- id: skill-importer
+  name: dsh-skill-importer
 ```
 
-A **Skills** section appears in Settings.
+### 3. Restart dsh Web
 
-## Usage
+Open **Settings → Skills**. Import a Markdown file or URL, choose a target, and the skill will appear as soon as the filesystem watcher discovers it.
 
-1. **Import**: Settings → Skills → pick a Markdown file (or paste a URL) → choose a target directory → Import. The form resets after success; the list refreshes automatically.
-2. **Use**: in any session, pick a skill from the tool-row picker, run `/skills`, or type `/name ` — all three fill the draft with `/name ` (highlighted) and sending injects the skill's instructions.
+> Requires DeepSeek Harness `>= 0.1.0-rc.6` via `npx @deepseek-ai/dsh web`.
+
+## How it works
+
+The dsh client-to-host RPC is a fixed allowlist with no file-write channel. This plugin uses the official `ctx.webServer.register` extension point exposed by [`dsh-host-webserver`](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/host/webserver) and registers same-origin `/skill-importer/*` routes on the harness server.
+
+```text
+Markdown file or URL
+        │  same-origin fetch
+        ▼
+/skill-importer/import
+        │  host filesystem write
+        ▼
+<skill-root>/<name>/SKILL.md
+        │  watcher event
+        ▼
+skills/change → hot refresh
+```
+
+POST routes verify the `Origin` header and only accept loopback sources (`127.0.0.1` or `localhost`). Writes are restricted to these standard roots:
+
+| Scope | Directory |
+| :--- | :--- |
+| Project | `.agents/skills` |
+| Legacy project | `.dsh/skills` |
+| Global | `~/.dsh/skills` |
 
 ## Development
 
 ```sh
 npm install
-npm run build     # tsc emits lib/types; tsdown emits lib/index.js + lib/client.js
+npm run build
 ```
 
-Layout:
+| Area | Source |
+| :--- | :--- |
+| Host plugin and route registration | `src/index.ts` |
+| Filesystem, URL import, and HTTP logic | `src/server.ts` |
+| Shared wire types | `src/types.ts` |
+| Browser plugin and `/skills` command | `src/client/index.ts` |
+| Composer picker | `src/client/SkillsPicker.tsx` |
+| Settings experience | `src/client/SkillImporterSection.tsx` |
 
-- `src/index.ts` — host plugin body: registers the `/skill-importer/*` routes (`inject: ['webServer', 'workspaceRegistry']`)
-- `src/server.ts` — pure Node logic (write/delete/list/URL fetch/HTTP layer), no Cordis imports, directly smoke-testable
-- `src/types.ts` — shared wire types between host and client halves
-- `src/client/index.ts` — browser plugin body: settings section, `/skills` popupSelect, hidden lexicon source
-- `src/client/SkillsPicker.tsx` — composer tool-row picker (search + avatars)
-- `src/client/SkillImporterSection.tsx` — settings section (General-settings row style, zh/en)
+Available routes: `GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete`
 
-Routes: `GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete`
+### Local checkout
 
-## Known limitations
+```sh
+npm install
+npm run build
+dsh plugin --profile web add /path/to/dsh-skill-importer
+```
 
-- Single file ≤ 256 KB.
-- URL import does a rough text extraction for HTML pages — prefer `.md` sources.
-- Targets are fixed to the three standard skill roots (no arbitrary paths; that is the security boundary).
-- The list polls briefly after an import (2s interval, up to 20s); Refresh syncs immediately for external changes.
+Add the profile entry shown above, then restart dsh Web.
+
+## Notes
+
+- A single imported file may be up to 256 KB.
+- URL import preserves `.md` sources; HTML pages use lightweight text extraction, so direct Markdown URLs work best.
+- The installed list polls briefly after import (every 2 seconds for up to 20 seconds). **Refresh** syncs external changes immediately.
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).
