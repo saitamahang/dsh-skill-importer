@@ -36,17 +36,30 @@ skill-filesystem 的 watcher 发现 → skills/change → / 菜单、模型目�
 
 要求 dsh `>= 0.1.0-rc.6`（`npx @deepseek-ai/dsh web` 方式运行）。
 
+### 从 npm 安装（已发布后）
+
 ```sh
-# 1. 构建（仓库内已构建好则跳过）
+# 1. 安装插件包（等价于在 profile 里 add）
+dsh plugin --profile web add dsh-skill-importer
+
+# 2. 在 $DSH_HOME/profiles/web/cordis.patch.yml 里追加一行：
+#    - id: skill-importer
+#      name: 'dsh-skill-importer'
+
+# 3. 重启 dsh web
+```
+
+### 从本地路径安装（开发中）
+
+```sh
+# 1. 构建
 npm install
 npm run build
 
-# 2. 装进 web profile（本地路径也可）
+# 2. 装进 web profile（本地路径）
 dsh plugin --profile web add /path/to/dsh-skill-importer
 
-# 3. 在 $DSH_HOME/profiles/web/cordis.patch.yml 里追加一行：
-#    - id: skill-importer
-#      name: 'dsh-skill-importer'
+# 3. 同上在 cordis.patch.yml 追加插件行
 
 # 4. 重启 dsh web
 ```
