@@ -34,6 +34,7 @@ import type {
   BatchCommitRequest, BatchScanRequest, DeleteRequest,
   ImportRequest, ImportTarget, ImportUrlRequest,
 } from './types.ts'
+import { compareVersions, currentVersion, latestVersion, updateCommand } from './update.ts'
 
 /** Route paths this plugin owns (exact matches; the client fetches the same literals). */
 export const ROUTES = {
@@ -44,6 +45,7 @@ export const ROUTES = {
   delete: '/skill-importer/delete',
   batchScan: '/skill-importer/batch/scan',
   batchCommit: '/skill-importer/batch/commit',
+  updateStatus: '/skill-importer/update-status',
 } as const
 
 /** Required services: the harness web server's route registry and the workspace registry. */
@@ -85,6 +87,31 @@ export function apply(ctx: Context): void {
       path: ROUTES.list,
       handler: handle(async (_req, res) => {
         sendJson(res, 200, { ok: true, skills: listSkills(projectPaths()) })
+      }),
+    },
+    {
+      kind: 'exact',
+      path: ROUTES.updateStatus,
+      handler: handle(async (_req, res) => {
+        const installed = currentVersion()
+        try {
+          const latest = await latestVersion()
+          const updateAvailable = compareVersions(installed, latest) < 0
+          sendJson(res, 200, {
+            ok: true,
+            currentVersion: installed,
+            latestVersion: latest,
+            updateAvailable,
+            command: updateAvailable ? updateCommand(latest) : undefined,
+          })
+        } catch (error) {
+          sendJson(res, 200, {
+            ok: true,
+            currentVersion: installed,
+            updateAvailable: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
       }),
     },
     {

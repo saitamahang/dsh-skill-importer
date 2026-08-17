@@ -17,6 +17,7 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseSkillFile, validateSkillFile } from '../frontmatter.ts'
 import type {
   BatchCommitEntry, BatchScanResponse, DeleteRequest, ImportTarget, SkillListEntry,
+  UpdateStatusResponse,
 } from '../types.ts'
 import { nameFromUrl } from './name.ts'
 import type { SkillImporterInjected } from './index.ts'
@@ -155,12 +156,48 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [batchResults, setBatchResults] = useState<readonly BatchCommitEntry[]>()
   const [replaceNames, setReplaceNames] = useState<ReadonlySet<string>>(() => new Set())
   const [pendingDelete, setPendingDelete] = useState<SkillListEntry>()
+  const [updateState, setUpdateState] = useState<'checking' | 'ready' | 'error'>('checking')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse>()
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [commandCopied, setCommandCopied] = useState(false)
   const [batchConfirmation, setBatchConfirmation] = useState<{
     readonly importing: number
     readonly replacing: number
     readonly skipped: number
   }>()
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const checkForUpdates = (): void => {
+    setUpdateState('checking')
+    actions.checkForUpdates().then(
+      (status) => {
+        setUpdateStatus(status)
+        setUpdateState(status.error === undefined ? 'ready' : 'error')
+      },
+      () => setUpdateState('error'),
+    )
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    actions.checkForUpdates().then(
+      (status) => {
+        if (cancelled) return
+        setUpdateStatus(status)
+        setUpdateState(status.error === undefined ? 'ready' : 'error')
+      },
+      () => {
+        if (!cancelled) setUpdateState('error')
+      },
+    )
+    return () => { cancelled = true }
+  }, [actions])
+
+  const copyUpdateCommand = async (): Promise<void> => {
+    if (updateStatus?.command === undefined) return
+    await navigator.clipboard.writeText(updateStatus.command)
+    setCommandCopied(true)
+  }
 
   const onFilePicked = async (file: File | undefined): Promise<void> => {
     setFileDraft(undefined)
@@ -690,6 +727,31 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           </div>
         </div>
       </div>
+      <div style={versionFooterStyle}>
+        <div style={versionCopyStyle}>
+          <span style={versionLabelStyle}>
+            {updateStatus === undefined
+              ? t('versionChecking')
+              : t('versionCurrent', { version: updateStatus.currentVersion })}
+          </span>
+          <span style={descriptionStyle}>
+            {updateState === 'checking'
+              ? t('versionChecking')
+              : updateState === 'error'
+                ? t('versionCheckFailed')
+                : updateStatus?.updateAvailable === true
+                  ? t('versionAvailable', { version: updateStatus.latestVersion ?? '' })
+                  : t('versionLatest')}
+          </span>
+        </div>
+        {updateState === 'error' ? (
+          <button type="button" onClick={checkForUpdates} style={pillStyle}>{t('versionRetry')}</button>
+        ) : updateStatus?.updateAvailable === true ? (
+          <button type="button" onClick={() => { setCommandCopied(false); setUpdateDialogOpen(true) }} style={updateButtonStyle}>
+            {t('versionUpdate')}
+          </button>
+        ) : null}
+      </div>
       <Modal
         open={pendingDelete !== undefined}
         onClose={() => { if (!busy) setPendingDelete(undefined) }}
@@ -720,6 +782,26 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           </>
         )}
       />
+      <Modal
+        open={updateDialogOpen}
+        onClose={() => setUpdateDialogOpen(false)}
+        title={t('updateTitle')}
+        closeLabel={t('close')}
+        description={t('updateDescription')}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => setUpdateDialogOpen(false)}>{t('cancel')}</Button>
+            <Button variant="primary" onClick={() => { void copyUpdateCommand() }}>
+              {commandCopied ? t('commandCopied') : t('copyCommand')}
+            </Button>
+          </>
+        )}
+      >
+        <div style={updateDialogBodyStyle}>
+          <code style={updateCommandStyle}>{updateStatus?.command}</code>
+          <div style={descriptionStyle}>{t('restartHint')}</div>
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -752,6 +834,64 @@ const descriptionStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: '18px',
   color: 'var(--dsw-alias-label-caption)',
+}
+
+const versionFooterStyle: CSSProperties = {
+  minHeight: 58,
+  padding: '12px 0',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  borderTop: '1px solid var(--dsw-alias-border-l2)',
+}
+
+const versionCopyStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+}
+
+const versionLabelStyle: CSSProperties = {
+  fontSize: 12,
+  lineHeight: '18px',
+  fontWeight: 500,
+  color: 'var(--dsw-alias-label-secondary)',
+}
+
+const updateButtonStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 28,
+  padding: '0 12px',
+  border: '1px solid var(--dsw-alias-interactive-border-primary)',
+  borderRadius: 14,
+  background: 'transparent',
+  font: 'inherit',
+  fontSize: 13,
+  borderColor: 'var(--dsw-alias-interactive-border-primary)',
+  color: 'var(--dsw-alias-interactive-label-primary)',
+  cursor: 'pointer',
+}
+
+const updateDialogBodyStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+}
+
+const updateCommandStyle: CSSProperties = {
+  display: 'block',
+  padding: '10px 12px',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 8,
+  background: 'var(--dsw-alias-bg-module-platform)',
+  color: 'var(--dsw-alias-label-primary)',
+  fontSize: 12,
+  lineHeight: '18px',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all',
 }
 
 const pillStyle: CSSProperties = {

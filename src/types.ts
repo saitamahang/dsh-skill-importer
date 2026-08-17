@@ -109,6 +109,17 @@ export interface SkillListResponse {
   readonly skills: readonly SkillListEntry[]
 }
 
+/** `/skill-importer/update-status` response. */
+export interface UpdateStatusResponse {
+  readonly ok: true
+  readonly currentVersion: string
+  readonly latestVersion?: string
+  readonly updateAvailable: boolean
+  readonly command?: string
+  /** A failed registry check is non-fatal: the installed version is still useful. */
+  readonly error?: string
+}
+
 /** Success response of an import. */
 export interface ImportResponse {
   readonly ok: true

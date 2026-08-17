@@ -47,6 +47,7 @@
     "build": "rm -rf lib && tsc -p tsconfig.json && tsdown",
     "test:batch": "node --experimental-strip-types tests/batch-import.test.mjs",
     "test:atomic-delete": "node --experimental-strip-types tests/atomic-skill-delete.test.mjs",
+    "test:update": "node --experimental-strip-types tests/update.test.mjs",
     "watch": "tsdown --watch"
   },
   "license": "MIT",

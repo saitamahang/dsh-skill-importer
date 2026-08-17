@@ -33,6 +33,7 @@ import { en, NS, zh, type SkillImporterKey } from './locales.ts'
 import type {
   BatchCommitRequest, BatchCommitResponse, BatchScanRequest, BatchScanResponse,
   DeleteRequest, ErrorResponse, ImportRequest, ImportResponse, ImportUrlRequest, SkillListResponse,
+  UpdateStatusResponse,
 } from '../types.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -66,6 +67,8 @@ export interface SkillImporterInjected {
     scanBatch: (request: BatchScanRequest) => Promise<BatchScanResponse>
     /** Commit one preflight once, replacing only explicitly confirmed names. */
     commitBatch: (request: BatchCommitRequest) => Promise<BatchCommitResponse>
+    /** Return the installed version and the latest npm version when reachable. */
+    checkForUpdates: () => Promise<UpdateStatusResponse>
   }
 }
 
@@ -80,6 +83,7 @@ const ROUTES = {
   delete: '/skill-importer/delete',
   batchScan: '/skill-importer/batch/scan',
   batchCommit: '/skill-importer/batch/commit',
+  updateStatus: '/skill-importer/update-status',
 } as const
 
 /** Fetch one route and unwrap the JSON envelope; throws on transport/HTTP errors. */
@@ -263,6 +267,9 @@ export function apply(ctx: ClientContext): void {
   const commitBatch = (request: BatchCommitRequest): Promise<BatchCommitResponse> =>
     call<BatchCommitResponse>(ROUTES.batchCommit, request)
 
+  const checkForUpdates = (): Promise<UpdateStatusResponse> =>
+    call<UpdateStatusResponse>(ROUTES.updateStatus)
+
   const face = (): SkillImporterInjected => ({
     hooks: {
       skills: {
@@ -283,6 +290,7 @@ export function apply(ctx: ClientContext): void {
       pickDirectory,
       scanBatch,
       commitBatch,
+      checkForUpdates,
     },
   })
 
