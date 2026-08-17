@@ -62,6 +62,14 @@ function CheckIcon(): ReactNode {
   )
 }
 
+function TrashIcon(): ReactNode {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M2.5 3.75h9M5.25 3.75V2.5h3.5v1.25M4 3.75l.55 7.15a.75.75 0 0 0 .75.7h3.4a.75.75 0 0 0 .75-.7L10 3.75M5.75 6v3.25M8.25 6v3.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** Read a picked file's text (browser-local; nothing crosses the wire except the import itself). */
 function readFileText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -268,40 +276,57 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           <div style={descriptionStyle}>{t('installedEmpty')}</div>
         ) : null}
         {skills.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={skillGroupsStyle}>
             {(['project-agents', 'project-dsh', 'user'] as const).map((source) => {
               const rows = skills.filter((skill) => skill.source === source)
               if (rows.length === 0) return null
+              const sourceName = source === 'project-agents'
+                ? t('sourceAgentsName')
+                : source === 'project-dsh'
+                  ? t('sourceDshName')
+                  : t('sourceUserName')
+              const sourcePath = source === 'project-agents'
+                ? '.agents/skills'
+                : source === 'project-dsh'
+                  ? '.dsh/skills'
+                  : '~/.dsh/skills'
               return (
-                <div key={source} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ ...descriptionStyle, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 8 }}>
-                    {t(`source${source === 'project-agents' ? 'Agents' : source === 'project-dsh' ? 'Dsh' : 'User'}`)}
+                <section key={source} style={skillGroupCardStyle}>
+                  <div style={skillGroupHeaderStyle}>
+                    <div style={skillGroupIdentityStyle}>
+                      <span style={skillGroupNameStyle}>{sourceName}</span>
+                      <code style={skillGroupPathStyle}>{sourcePath}</code>
+                    </div>
+                    <span style={countBadgeStyle}>{rows.length}</span>
                   </div>
-                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
-                    {rows.map((skill) => {
+                  <ul style={skillListStyle}>
+                    {rows.map((skill, index) => {
                       const flag = flags(skill)
                       return (
                         <li key={skill.source + ':' + skill.name}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
-                          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>
-                              /{skill.name}
-                              {flag !== undefined ? <span style={{ opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>{flag}</span> : null}
-                            </span>
-                            <span style={{ fontSize: 13, color: 'var(--dsw-alias-label-secondary)' }}>{skill.description}</span>
+                          style={{ ...skillRowStyle, borderBottom: index === rows.length - 1 ? 'none' : skillRowStyle.borderBottom }}>
+                          <span style={skillAvatarStyle} aria-hidden="true">{skill.name.charAt(0).toUpperCase()}</span>
+                          <div style={skillContentStyle}>
+                            <div style={skillNameRowStyle}>
+                              <span style={skillNameStyle}>{skill.name}</span>
+                              {flag !== undefined ? <span style={skillFlagStyle}>{flag}</span> : null}
+                            </div>
+                            <span style={skillDescriptionStyle}>{skill.description}</span>
                           </div>
                           <button
                             type="button"
+                            aria-label={`${t('delete')} ${skill.name}`}
+                            title={t('delete')}
                             onClick={() => { void removeSkill(skill) }}
-                            style={{ ...pillStyle, flex: 'none', color: 'var(--dsw-alias-state-error-primary)' }}
+                            style={deleteIconButtonStyle}
                           >
-                            {t('delete')}
+                            <TrashIcon />
                           </button>
                         </li>
                       )
                     })}
                   </ul>
-                </div>
+                </section>
               )
             })}
           </div>
@@ -482,6 +507,133 @@ const pillStyle: CSSProperties = {
   font: 'inherit',
   fontSize: 13,
   color: 'var(--dsw-alias-label-primary)',
+  cursor: 'pointer',
+}
+
+const skillGroupsStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  marginTop: 4,
+}
+
+const skillGroupCardStyle: CSSProperties = {
+  overflow: 'hidden',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 12,
+  background: 'transparent',
+}
+
+const skillGroupHeaderStyle: CSSProperties = {
+  minHeight: 42,
+  padding: '7px 12px',
+  boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+  background: 'var(--dsw-alias-bg-module-platform)',
+}
+
+const skillGroupIdentityStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+const skillGroupNameStyle: CSSProperties = {
+  fontSize: 13,
+  lineHeight: '20px',
+  fontWeight: 500,
+  color: 'var(--dsw-alias-label-primary)',
+}
+
+const skillGroupPathStyle: CSSProperties = {
+  padding: 0,
+  background: 'transparent',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11,
+  lineHeight: '16px',
+  color: 'var(--dsw-alias-label-tertiary)',
+}
+
+const countBadgeStyle: CSSProperties = {
+  flex: 'none',
+  minWidth: 22,
+  height: 20,
+  padding: '0 6px',
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 10,
+  background: 'var(--dsw-alias-interactive-bg-hover)',
+  color: 'var(--dsw-alias-label-secondary)',
+  fontSize: 11,
+  lineHeight: '16px',
+}
+
+const skillListStyle: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: '0 12px',
+  display: 'flex',
+  flexDirection: 'column',
+}
+
+const skillRowStyle: CSSProperties = {
+  minHeight: 62,
+  padding: '9px 0',
+  boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+}
+
+const skillAvatarStyle: CSSProperties = {
+  flex: 'none',
+  width: 32,
+  height: 32,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 10,
+  background: 'var(--dsw-alias-bg-module-platform)',
+  color: 'var(--dsw-alias-label-secondary)',
+  fontSize: 13,
+  lineHeight: '20px',
+  fontWeight: 600,
+}
+
+const skillContentStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+}
+
+const skillNameRowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }
+const skillNameStyle: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, lineHeight: '20px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)' }
+const skillDescriptionStyle: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
+const skillFlagStyle: CSSProperties = { flex: 'none', padding: '1px 6px', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 4, fontSize: 10, lineHeight: '14px', color: 'var(--dsw-alias-label-secondary)' }
+
+const deleteIconButtonStyle: CSSProperties = {
+  flex: 'none',
+  width: 28,
+  height: 28,
+  padding: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: 'none',
+  borderRadius: 14,
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-caption)',
   cursor: 'pointer',
 }
 
