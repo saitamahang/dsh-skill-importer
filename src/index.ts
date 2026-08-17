@@ -1,7 +1,7 @@
 /**
  * Host (Node) half of the dsh-skill-importer plugin.
  *
- * Registers four `/skill-importer/*` HTTP routes on the harness's own web
+ * Registers the `/skill-importer/*` HTTP routes on the harness's own web
  * server (`ctx.webServer` — the official plugin route registry, served on
  * the same origin as the Web UI):
  *
@@ -10,6 +10,8 @@
  * - POST /skill-importer/import     — write one skill file from its text
  * - POST /skill-importer/import-url — fetch a URL and write the skill file
  * - POST /skill-importer/delete     — remove one installed skill copy
+ * - POST /skill-importer/batch/scan — validate a local skills directory without writing
+ * - POST /skill-importer/batch/commit — commit one short-lived preflight once
  *
  * The host process owns the filesystem (no agent sandbox, no approval), so
  * an import lands the file immediately; the skill-filesystem provider's
@@ -23,8 +25,15 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-skill'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { deleteSkillFile, listSkills, originAllowed, readJsonBody, resolveImport, sendError, sendJson } from './server.ts'
-import type { DeleteRequest, ImportRequest, ImportTarget, ImportUrlRequest } from './types.ts'
+import {
+  commitBatch, deleteSkillFile, listSkills, originAllowed, readJsonBody,
+  resolveImport, scanBatch, sendError, sendJson,
+} from './server.ts'
+import type { BatchScanSession } from './server.ts'
+import type {
+  BatchCommitRequest, BatchScanRequest, DeleteRequest,
+  ImportRequest, ImportTarget, ImportUrlRequest,
+} from './types.ts'
 
 /** Route paths this plugin owns (exact matches; the client fetches the same literals). */
 export const ROUTES = {
@@ -33,6 +42,8 @@ export const ROUTES = {
   import: '/skill-importer/import',
   importUrl: '/skill-importer/import-url',
   delete: '/skill-importer/delete',
+  batchScan: '/skill-importer/batch/scan',
+  batchCommit: '/skill-importer/batch/commit',
 } as const
 
 /** Required services: the harness web server's route registry and the workspace registry. */
@@ -54,6 +65,14 @@ export function apply(ctx: Context): void {
   // Canonical paths of the registered workspaces; project targets write only
   // under these (the host process cwd is NOT a valid project root).
   const projectPaths = (): readonly string[] => ctx.workspaceRegistry.list().map((workspace) => workspace.path)
+  const batchScans = new Map<string, BatchScanSession>()
+
+  const pruneBatchScans = (): void => {
+    const now = Date.now()
+    for (const [id, session] of batchScans) {
+      if (session.expiresAt <= now) batchScans.delete(id)
+    }
+  }
 
   const routes: readonly WebRoute[] = [
     {
@@ -123,6 +142,59 @@ export function apply(ctx: Context): void {
         const workspacePath = requireWorkspace(body.source, body.workspacePath)
         const removed = deleteSkillFile(body.name, body.source, workspacePath)
         sendJson(res, 200, { ok: true, removed })
+      }),
+    },
+    {
+      kind: 'exact',
+      path: ROUTES.batchScan,
+      handler: handle(async (req, res) => {
+        if (!originAllowed(req)) {
+          sendError(res, 403, 'origin 不被允许')
+          return
+        }
+        const body = await readJsonBody(req) as Partial<BatchScanRequest>
+        if (typeof body.sourcePath !== 'string'
+          || body.target !== 'user' && body.target !== 'project-agents') {
+          sendError(res, 400, '请求缺少 sourcePath / target 字段')
+          return
+        }
+        const workspacePath = requireWorkspace(body.target, body.workspacePath)
+        pruneBatchScans()
+        const session = scanBatch({ sourcePath: body.sourcePath, target: body.target, workspacePath })
+        batchScans.set(session.scanId, session)
+        sendJson(res, 200, {
+          ok: true,
+          scanId: session.scanId,
+          sourcePath: session.sourcePath,
+          entries: session.entries,
+        })
+      }),
+    },
+    {
+      kind: 'exact',
+      path: ROUTES.batchCommit,
+      handler: handle(async (req, res) => {
+        if (!originAllowed(req)) {
+          sendError(res, 403, 'origin 不被允许')
+          return
+        }
+        const body = await readJsonBody(req) as Partial<BatchCommitRequest>
+        if (typeof body.scanId !== 'string' || !Array.isArray(body.replace)
+          || !body.replace.every((name) => typeof name === 'string')) {
+          sendError(res, 400, '请求缺少 scanId / replace 字段')
+          return
+        }
+        pruneBatchScans()
+        const session = batchScans.get(body.scanId)
+        if (session === undefined) {
+          sendError(res, 410, '批量扫描结果不存在或已过期，请重新扫描')
+          return
+        }
+        // Single-use even when individual rows fail: a retry must start from a fresh preflight.
+        batchScans.delete(body.scanId)
+        const allowedNames = new Set(session.entries.filter((entry) => entry.status === 'ready' && entry.conflict).map((entry) => entry.name))
+        const replacements = new Set(body.replace.filter((name) => allowedNames.has(name)))
+        sendJson(res, 200, { ok: true, results: commitBatch(session, replacements) })
       }),
     },
   ]

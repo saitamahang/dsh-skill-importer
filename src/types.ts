@@ -52,6 +52,57 @@ export interface ImportUrlRequest {
   readonly workspacePath?: string
 }
 
+/** Read-only preflight request for one local skills directory. */
+export interface BatchScanRequest {
+  readonly sourcePath: string
+  readonly target: ImportTarget
+  readonly workspacePath?: string
+}
+
+/** One source entry reported by batch preflight. */
+export interface BatchScanEntry {
+  /** Stable row id within this one scan. */
+  readonly id: string
+  /** Frontmatter name when readable, otherwise a best-effort source label. */
+  readonly name: string
+  readonly description?: string
+  /** Path relative to the selected source directory. */
+  readonly relativePath: string
+  /** Error rows can never be selected for commit. */
+  readonly status: 'ready' | 'error'
+  readonly error?: string
+  readonly warnings?: readonly string[]
+  /** The selected destination already contains this skill name. */
+  readonly conflict: boolean
+}
+
+/** Successful batch scan; the id is single-use and expires after ten minutes. */
+export interface BatchScanResponse {
+  readonly ok: true
+  readonly scanId: string
+  readonly sourcePath: string
+  readonly entries: readonly BatchScanEntry[]
+}
+
+/** Commit a preflight, explicitly naming every destination conflict to replace. */
+export interface BatchCommitRequest {
+  readonly scanId: string
+  readonly replace: readonly string[]
+}
+
+/** Final outcome of one preflight row. */
+export interface BatchCommitEntry {
+  readonly name: string
+  readonly status: 'imported' | 'replaced' | 'skipped' | 'error'
+  readonly message?: string
+}
+
+/** One-time batch commit result. */
+export interface BatchCommitResponse {
+  readonly ok: true
+  readonly results: readonly BatchCommitEntry[]
+}
+
 /** `/skill-importer/list` response. */
 export interface SkillListResponse {
   readonly ok: true

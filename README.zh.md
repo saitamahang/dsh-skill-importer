@@ -26,7 +26,7 @@
 
 | 导入 | 管理 | 调用 |
 | :--- | :--- | :--- |
-| 上传 `SKILL.md` 或粘贴 URL，写入前自动校验并规范化 frontmatter。 | 按项目和全局目录分组查看，每个副本都能独立删除。 | 使用输入框选择器、运行 `/skills`，或直接输入 `/skill-name`。 |
+| 上传 `SKILL.md`、粘贴 URL，或从 Claude Code、Codex 等 Agent 的技能目录完整迁移。 | 按项目和全局目录分组查看，每个副本都能独立删除。 | 使用输入框选择器、运行 `/skills`，或直接输入 `/skill-name`。 |
 
 ### 为高速工作流而生
 
@@ -36,6 +36,12 @@
 - **工作区感知** — 项目技能始终写入当前注册工作区。
 - **中英双语** — UI 文案自动跟随 harness 语言。
 - **安全边界清晰** — 固定技能目录、256 KB 限制、同源 POST 校验。
+
+### 带完整预检的批量迁移
+
+第三个导入入口支持选择 `~/.claude/skills`、`~/.codex/skills` 或其他 `.agents/skills` 目录。写入前会扫描并校验每个 `SKILL.md`，同时完整保留技能的 `scripts`、`references`、`assets` 等资源；不合规项只展示错误，绝不会写入目标目录。
+
+目标中存在同名技能时默认跳过。用户可逐项勾选「替换」，检查新增、替换和跳过数量后再确认。每个技能先复制到目标根目录下的临时目录；替换时会暂存旧版本，交换失败自动回滚。扫描结果只能提交一次、十分钟后过期，并在提交时重新核对源内容摘要。
 
 ## 三种自然的技能入口
 
@@ -64,7 +70,7 @@ dsh plugin --profile web add dsh-skill-importer
 
 ### 3. 重启 dsh Web
 
-打开 **设置 → 技能**，选择 Markdown 文件或粘贴 URL，再选择目标目录。文件系统 watcher 发现后，技能会立即出现。
+打开 **设置 → 技能**，选择 Markdown 文件、粘贴 URL，或通过「批量导入」迁移其他 Agent 的完整技能目录，再选择目标范围。文件系统 watcher 发现后，技能会立即出现。
 
 > 需要 DeepSeek Harness `>= 0.1.0-rc.6`，使用 `npx @deepseek-ai/dsh web` 运行。
 
@@ -108,7 +114,7 @@ npm run build
 | 输入框技能选择器 | `src/client/SkillsPicker.tsx` |
 | 设置页 | `src/client/SkillImporterSection.tsx` |
 
-路由一览：`GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete`
+路由一览：`GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete` · `POST /skill-importer/batch/scan` · `POST /skill-importer/batch/commit`
 
 ### 本地源码安装
 
@@ -123,6 +129,7 @@ dsh plugin --profile web add /path/to/dsh-skill-importer
 ## 注意事项
 
 - 单个导入文件最大 256 KB。
+- 批量导入每次最多扫描 200 个技能；单个技能最多包含 2,000 个文件和 10 MB 资源，不接受符号链接。
 - URL 导入会原样保留 `.md`；HTML 页面仅做轻量正文提取，因此推荐使用 Markdown 直链。
 - 导入后列表会短暂轮询（每 2 秒一次，最多 20 秒）；外部改动可点击 **刷新** 立即同步。
 

@@ -26,7 +26,7 @@
 
 | Import | Organize | Invoke |
 | :--- | :--- | :--- |
-| Upload `SKILL.md` or paste a URL. Frontmatter is validated and normalized before writing. | Browse skills grouped across project and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
+| Upload `SKILL.md`, paste a URL, or migrate a complete skills directory from Claude Code, Codex, and similar agents. | Browse skills grouped across project and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
 
 ### Built for a fast loop
 
@@ -36,6 +36,12 @@
 - **Workspace-aware** — project skills always target the active registered workspace.
 - **Bilingual UI** — English and Chinese copy follows the harness locale.
 - **Safe by design** — fixed skill roots, 256 KB limit, and same-origin POST checks.
+
+### Batch migration with a real preflight
+
+The third import entry accepts a local skills root such as `~/.claude/skills`, `~/.codex/skills`, or another `.agents/skills` directory. It scans before it writes, validates every `SKILL.md`, preserves each skill's `scripts`, `references`, `assets`, and other resources, and reports invalid entries without touching the destination.
+
+Destination name conflicts are skipped by default. Choose **Replace** per skill, review the add/replace/skip summary, then confirm. Each accepted skill is copied through a same-root staging directory; replacements keep a temporary backup and roll back if the swap fails. A preflight is single-use, expires after ten minutes, and verifies source-content fingerprints again at commit time.
 
 ## Three natural ways to use a skill
 
@@ -64,7 +70,7 @@ Add the following entry to `$DSH_HOME/profiles/web/cordis.patch.yml`:
 
 ### 3. Restart dsh Web
 
-Open **Settings → Skills**. Import a Markdown file or URL, choose a target, and the skill will appear as soon as the filesystem watcher discovers it.
+Open **Settings → Skills**. Import a Markdown file or URL, or choose **Batch import** to migrate another agent's complete skills directory. Choose a target and the imported skills will appear as soon as the filesystem watcher discovers them.
 
 > Requires DeepSeek Harness `>= 0.1.0-rc.6` via `npx @deepseek-ai/dsh web`.
 
@@ -108,7 +114,7 @@ npm run build
 | Composer picker | `src/client/SkillsPicker.tsx` |
 | Settings experience | `src/client/SkillImporterSection.tsx` |
 
-Available routes: `GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete`
+Available routes: `GET /skill-importer/health` · `GET /skill-importer/list` · `POST /skill-importer/import` · `POST /skill-importer/import-url` · `POST /skill-importer/delete` · `POST /skill-importer/batch/scan` · `POST /skill-importer/batch/commit`
 
 ### Local checkout
 
@@ -123,6 +129,7 @@ Add the profile entry shown above, then restart dsh Web.
 ## Notes
 
 - A single imported file may be up to 256 KB.
+- Batch import accepts up to 200 skills per scan; each skill may contain up to 2,000 files and 10 MB of resources. Symbolic links are refused.
 - URL import preserves `.md` sources; HTML pages use lightweight text extraction, so direct Markdown URLs work best.
 - The installed list polls briefly after import (every 2 seconds for up to 20 seconds). **Refresh** syncs external changes immediately.
 

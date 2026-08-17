@@ -14,7 +14,9 @@ import type {
   InjectFace, PropsLocale, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { parseSkillFile, validateSkillFile } from '../frontmatter.ts'
-import type { DeleteRequest, ImportTarget, SkillListEntry } from '../types.ts'
+import type {
+  BatchCommitEntry, BatchScanResponse, DeleteRequest, ImportTarget, SkillListEntry,
+} from '../types.ts'
 import { nameFromUrl } from './name.ts'
 import type { SkillImporterInjected } from './index.ts'
 
@@ -50,6 +52,14 @@ function LinkIcon(): ReactNode {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
       <path d="m7.15 10.85 3.7-3.7M6.05 12.55l-1.1 1.1a2.6 2.6 0 0 1-3.68-3.68l2.3-2.3a2.6 2.6 0 0 1 3.68 0M11.95 5.45l1.1-1.1a2.6 2.6 0 1 1 3.68 3.68l-2.3 2.3a2.6 2.6 0 0 1-3.68 0" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function BatchIcon(): ReactNode {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M3 4.25h12v9.5H3zM3 7.25h12M6.25 2.5v3.25M11.75 2.5v3.25M6 10.5h2M10 10.5h2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -128,7 +138,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   }, [listEpoch, actions])
 
   // Import form state.
-  const [mode, setMode] = useState<'file' | 'url'>('file')
+  const [mode, setMode] = useState<'file' | 'url' | 'batch'>('file')
   const [target, setTarget] = useState<ImportTarget>('project-agents')
   const [fileDraft, setFileDraft] = useState<FileDraft | undefined>()
   const [fileError, setFileError] = useState<string>()
@@ -137,6 +147,10 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string>()
   const [messageError, setMessageError] = useState(false)
+  const [batchPath, setBatchPath] = useState<string>()
+  const [batchScan, setBatchScan] = useState<BatchScanResponse>()
+  const [batchResults, setBatchResults] = useState<readonly BatchCommitEntry[]>()
+  const [replaceNames, setReplaceNames] = useState<ReadonlySet<string>>(() => new Set())
   const fileInput = useRef<HTMLInputElement>(null)
 
   const onFilePicked = async (file: File | undefined): Promise<void> => {
@@ -225,7 +239,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           workspacePath: workspace?.path,
         })
         pollForSkill(fileDraft.name, 10)
-      } else {
+      } else if (mode === 'url') {
         path = await actions.importUrl({
           name: effectiveUrlName,
           target,
@@ -233,6 +247,8 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           workspacePath: workspace?.path,
         })
         pollForSkill(effectiveUrlName, 10)
+      } else {
+        return
       }
       setMessage(`${t('imported')}${path}`)
       // Reset the import form so the next import starts clean.
@@ -250,10 +266,108 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     }
   }
 
+  const resetBatchPreflight = (): void => {
+    setBatchScan(undefined)
+    setBatchResults(undefined)
+    setReplaceNames(new Set())
+    setMessage(undefined)
+  }
+
+  const chooseBatchDirectory = async (): Promise<void> => {
+    setBusy(true)
+    setMessage(undefined)
+    setMessageError(false)
+    try {
+      const path = await actions.pickDirectory()
+      if (path === null) return
+      setBatchPath(path)
+      resetBatchPreflight()
+    } catch (error) {
+      setMessageError(true)
+      setMessage(`${t('batchPickFailed')}：${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const scanBatchDirectory = async (): Promise<void> => {
+    if (batchPath === undefined) return
+    setBusy(true)
+    setMessage(undefined)
+    setMessageError(false)
+    setBatchResults(undefined)
+    setReplaceNames(new Set())
+    try {
+      const result = await actions.scanBatch({
+        sourcePath: batchPath,
+        target,
+        workspacePath: workspace?.path,
+      })
+      setBatchScan(result)
+    } catch (error) {
+      setBatchScan(undefined)
+      setMessageError(true)
+      setMessage(`${t('batchScanFailed')}：${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const commitBatchDirectory = async (): Promise<void> => {
+    if (batchScan === undefined) return
+    const ready = batchScan.entries.filter((entry) => entry.status === 'ready')
+    const replacing = ready.filter((entry) => replaceNames.has(entry.name)).length
+    const importing = ready.filter((entry) => !entry.conflict).length
+    const skipped = ready.filter((entry) => entry.conflict && !replaceNames.has(entry.name)).length
+    if (!window.confirm(t('batchConfirm', { importing, replacing, skipped }))) return
+    setBusy(true)
+    setMessage(undefined)
+    setMessageError(false)
+    try {
+      const result = await actions.commitBatch({ scanId: batchScan.scanId, replace: [...replaceNames] })
+      setBatchResults(result.results)
+      setBatchScan(undefined)
+      setReplaceNames(new Set())
+      setListEpoch((epoch) => epoch + 1)
+    } catch (error) {
+      setMessageError(true)
+      setMessage(`${t('batchImportFailed')}：${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleReplace = (name: string): void => {
+    setReplaceNames((current) => {
+      const next = new Set(current)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+  }
+
+  const changeTarget = (next: ImportTarget): void => {
+    setTarget(next)
+    if (mode === 'batch') resetBatchPreflight()
+  }
+
   const canSubmit = busy
     || (mode === 'file' && fileDraft === undefined)
     || (mode === 'url' && (url.trim().length === 0 || !/^https?:\/\//i.test(url.trim())))
+    || (mode === 'batch' && batchPath === undefined)
     || (target !== 'user' && workspace === undefined)
+
+  const runPrimaryAction = (): void => {
+    if (mode !== 'batch') {
+      void submit()
+      return
+    }
+    if (batchScan === undefined) void scanBatchDirectory()
+    else void commitBatchDirectory()
+  }
+
+  const primaryLabel = mode !== 'batch'
+    ? busy ? t('importing') : t('import')
+    : busy ? t('batchWorking') : batchScan === undefined ? t('batchScan') : t('batchCommit')
 
   const flags = (skill: SkillListEntry): string | undefined => {
     if (!skill.modelInvocable && skill.userInvocable) return t('userOnly')
@@ -360,7 +474,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           <div style={titleStyle}>{t('importTitle')}</div>
           <div style={descriptionStyle}>{t('importDescription')}</div>
 
-          {/* File / URL mode tabs */}
+          {/* File / URL / batch mode tabs */}
           <div role="tablist" style={entryGridStyle}>
             <button type="button" role="tab" aria-selected={mode === 'file'} onClick={() => setMode('file')}
               style={entryButtonStyle(mode === 'file')}>
@@ -379,6 +493,15 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                 <span style={entryDescriptionStyle}>{t('urlEntryDescription')}</span>
               </span>
               {mode === 'url' ? <span style={entryCheckStyle}><CheckIcon /></span> : null}
+            </button>
+            <button type="button" role="tab" aria-selected={mode === 'batch'} onClick={() => setMode('batch')}
+              style={entryButtonStyle(mode === 'batch')}>
+              <span style={entryIconStyle}><BatchIcon /></span>
+              <span style={entryCopyStyle}>
+                <span style={entryTitleStyle}>{t('batchTab')}</span>
+                <span style={entryDescriptionStyle}>{t('batchEntryDescription')}</span>
+              </span>
+              {mode === 'batch' ? <span style={entryCheckStyle}><CheckIcon /></span> : null}
             </button>
           </div>
 
@@ -421,7 +544,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                 </div>
               ) : null}
             </div>
-          ) : (
+          ) : mode === 'url' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <label style={fieldStyle}>
                 <span style={fieldLabelStyle}>{t('urlLabel')}</span>
@@ -445,6 +568,76 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                 <span style={descriptionStyle}>{t('urlNameHelp')}</span>
               </label>
             </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button type="button" onClick={() => { void chooseBatchDirectory() }} style={filePickerStyle} disabled={busy}>
+                <span style={filePickerIconStyle}><BatchIcon /></span>
+                <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+                  <span style={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {batchPath ?? t('batchChooseDirectory')}
+                  </span>
+                  <span style={descriptionStyle}>{batchPath === undefined ? t('batchDirectoryHint') : t('batchDirectorySelected')}</span>
+                </span>
+                <span style={secondaryButtonStyle}>{batchPath === undefined ? t('browse') : t('change')}</span>
+              </button>
+
+              {batchScan !== undefined ? (
+                <div style={batchPanelStyle}>
+                  <div style={batchSummaryStyle}>
+                    <span>{t('batchPreflight')}</span>
+                    <span style={countBadgeStyle}>{batchScan.entries.length}</span>
+                  </div>
+                  <ul style={batchListStyle}>
+                    {batchScan.entries.map((entry, index) => (
+                      <li key={entry.id} style={{ ...batchRowStyle, borderBottom: index === batchScan.entries.length - 1 ? 'none' : batchRowStyle.borderBottom }}>
+                        <span style={{ ...batchStatusDotStyle, background: entry.status === 'error' ? 'var(--dsw-alias-state-error-primary)' : entry.conflict ? 'var(--dsw-alias-state-warn-label)' : 'var(--dsw-alias-state-success-primary)' }} />
+                        <div style={skillContentStyle}>
+                          <div style={skillNameRowStyle}>
+                            <span style={skillNameStyle}>{entry.name}</span>
+                            {entry.conflict && entry.status === 'ready' ? <span style={batchConflictTagStyle}>{t('batchConflict')}</span> : null}
+                          </div>
+                          <span style={skillDescriptionStyle}>{entry.error ?? entry.description ?? entry.relativePath}</span>
+                          {entry.warnings?.map((warning) => <span key={warning} style={batchWarningStyle}>{warning}</span>)}
+                        </div>
+                        {entry.conflict && entry.status === 'ready' ? (
+                          <label style={replaceLabelStyle}>
+                            <input type="checkbox" checked={replaceNames.has(entry.name)} onChange={() => toggleReplace(entry.name)} />
+                            <span>{t('batchReplace')}</span>
+                          </label>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {batchResults !== undefined ? (
+                <div style={batchPanelStyle}>
+                  <div style={batchSummaryStyle}>
+                    <span>{t('batchResultTitle')}</span>
+                    <span style={descriptionStyle}>{t('batchResultSummary', {
+                      imported: batchResults.filter((entry) => entry.status === 'imported').length,
+                      replaced: batchResults.filter((entry) => entry.status === 'replaced').length,
+                      skipped: batchResults.filter((entry) => entry.status === 'skipped').length,
+                      failed: batchResults.filter((entry) => entry.status === 'error').length,
+                    })}</span>
+                  </div>
+                  <ul style={batchListStyle}>
+                    {batchResults.map((entry, index) => (
+                      <li key={`${entry.status}:${entry.name}:${index}`} style={{ ...batchResultRowStyle, borderBottom: index === batchResults.length - 1 ? 'none' : batchResultRowStyle.borderBottom }}>
+                        <span style={{ ...batchResultBadgeStyle, color: entry.status === 'error' ? 'var(--dsw-alias-state-error-primary)' : entry.status === 'skipped' ? 'var(--dsw-alias-state-warn-label)' : 'var(--dsw-alias-state-success-primary)' }}>
+                          {t(entry.status === 'imported' ? 'batchStatusImported' : entry.status === 'replaced' ? 'batchStatusReplaced' : entry.status === 'skipped' ? 'batchStatusSkipped' : 'batchStatusError')}
+                        </span>
+                        <div style={skillContentStyle}>
+                          <span style={skillNameStyle}>{entry.name}</span>
+                          {entry.message !== undefined ? <span style={skillDescriptionStyle}>{entry.message}</span> : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           )}
 
           {/* Target directory */}
@@ -453,7 +646,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
             <span style={fieldLabelStyle}>{t('targetLabel')}</span>
             <select
               value={target}
-              onChange={(event) => setTarget(event.target.value as ImportTarget)}
+              onChange={(event) => changeTarget(event.target.value as ImportTarget)}
               style={selectStyle}
             >
               <option value="project-agents" disabled={workspace === undefined}>
@@ -473,8 +666,8 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                 {message}
               </span>
             ) : <span style={{ flex: 1 }} />}
-            <button type="button" disabled={canSubmit} onClick={() => { void submit() }} style={canSubmit ? primaryDisabledStyle : primaryStyle}>
-              {busy ? t('importing') : t('import')}
+            <button type="button" disabled={canSubmit} onClick={runPrimaryAction} style={canSubmit ? primaryDisabledStyle : primaryStyle}>
+              {primaryLabel}
             </button>
           </div>
           </div>
@@ -693,7 +886,7 @@ const selectStyle: CSSProperties = {
 
 const entryGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
   gap: 10,
   marginTop: 12,
 }
@@ -796,6 +989,37 @@ const editorDividerStyle: CSSProperties = { height: 1, background: 'var(--dsw-al
 const fieldStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }
 const fieldLabelStyle: CSSProperties = { fontSize: 12, lineHeight: '18px', fontWeight: 500, color: 'var(--dsw-alias-label-secondary)' }
 const actionStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }
+
+const batchPanelStyle: CSSProperties = {
+  overflow: 'hidden',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 10,
+  background: 'var(--dsw-alias-bg-layer-1)',
+}
+
+const batchSummaryStyle: CSSProperties = {
+  minHeight: 38,
+  boxSizing: 'border-box',
+  padding: '7px 10px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+  fontSize: 12,
+  lineHeight: '18px',
+  fontWeight: 500,
+  color: 'var(--dsw-alias-label-primary)',
+}
+
+const batchListStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: '0 10px', display: 'flex', flexDirection: 'column', maxHeight: 320, overflowY: 'auto' }
+const batchRowStyle: CSSProperties = { minHeight: 58, padding: '8px 0', display: 'flex', alignItems: 'center', gap: 9, borderBottom: '1px solid var(--dsw-alias-border-l2)' }
+const batchResultRowStyle: CSSProperties = { minHeight: 48, padding: '7px 0', display: 'flex', alignItems: 'center', gap: 9, borderBottom: '1px solid var(--dsw-alias-border-l2)' }
+const batchStatusDotStyle: CSSProperties = { flex: 'none', width: 8, height: 8, borderRadius: '50%' }
+const batchConflictTagStyle: CSSProperties = { flex: 'none', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--dsw-alias-state-warn-label)', color: 'var(--dsw-alias-state-warn-label)', fontSize: 10, lineHeight: '14px' }
+const batchWarningStyle: CSSProperties = { fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-state-warn-label)' }
+const replaceLabelStyle: CSSProperties = { flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' }
+const batchResultBadgeStyle: CSSProperties = { flex: 'none', minWidth: 42, fontSize: 11, lineHeight: '16px', fontWeight: 500 }
 
 const primaryStyle: CSSProperties = {
   display: 'inline-flex',

@@ -40,6 +40,7 @@
   ],
   "scripts": {
     "build": "rm -rf lib && tsc -p tsconfig.json && tsdown",
+    "test:batch": "node --experimental-strip-types tests/batch-import.test.mjs",
     "watch": "tsdown --watch"
   },
   "license": "MIT",

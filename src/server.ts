@@ -8,18 +8,28 @@
  * and the skill-filesystem watcher discovers it in place.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, extname, isAbsolute, join, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isValidSkillName, parseSkillFile } from './frontmatter.ts'
-import type { ImportRequest, ImportTarget, ImportUrlRequest, SkillListEntry } from './types.ts'
+import type {
+  BatchCommitEntry, BatchScanEntry, BatchScanRequest,
+  ImportRequest, ImportTarget, ImportUrlRequest, SkillListEntry,
+} from './types.ts'
 
 /** Hard cap for one imported skill body (matches the client preview limit). */
 export const MAX_CONTENT_BYTES = 256 * 1024
 
 /** Cap for one request body read (JSON overhead above the content cap). */
 export const MAX_BODY_BYTES = 1024 * 1024
+
+/** Batch safety bounds: resources are copied, but one selection stays finite. */
+export const MAX_BATCH_SKILLS = 200
+export const MAX_BATCH_FILES_PER_SKILL = 2_000
+export const MAX_BATCH_SKILL_BYTES = 10 * 1024 * 1024
+export const BATCH_SCAN_TTL_MS = 10 * 60 * 1000
 
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -186,6 +196,232 @@ export function deleteSkillFile(name: string, source: ImportTarget, workspacePat
     return true
   }
   return false
+}
+
+/** Host-only source candidate retained between scan and the one-time commit. */
+interface BatchCandidate {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly sourcePath: string
+  readonly sourceKind: 'directory' | 'file'
+  readonly fingerprint: string
+}
+
+/** One short-lived preflight. The HTTP layer owns the map and single-use lifecycle. */
+export interface BatchScanSession {
+  readonly scanId: string
+  readonly sourcePath: string
+  readonly target: ImportTarget
+  readonly workspacePath?: string
+  readonly expiresAt: number
+  readonly entries: readonly BatchScanEntry[]
+  readonly candidates: ReadonlyMap<string, BatchCandidate>
+}
+
+interface SourceStats {
+  readonly fingerprint: string
+  readonly fileCount: number
+  readonly bytes: number
+}
+
+/** Hash names and bytes while refusing symlinks and oversized skill bundles. */
+function sourceStats(sourcePath: string, kind: 'directory' | 'file'): SourceStats {
+  const hash = createHash('sha256')
+  let fileCount = 0
+  let bytes = 0
+  const visit = (path: string, relativePath: string): void => {
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink()) throw new Error('技能目录不能包含符号链接')
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        visit(join(path, entry.name), relativePath.length === 0 ? entry.name : join(relativePath, entry.name))
+      }
+      return
+    }
+    if (!stat.isFile()) throw new Error('技能目录包含不支持的文件类型')
+    fileCount += 1
+    bytes += stat.size
+    if (fileCount > MAX_BATCH_FILES_PER_SKILL) throw new Error(`技能文件数量超过 ${MAX_BATCH_FILES_PER_SKILL}`)
+    if (bytes > MAX_BATCH_SKILL_BYTES) throw new Error(`技能目录超过 ${MAX_BATCH_SKILL_BYTES / 1024 / 1024} MB`)
+    hash.update(relativePath)
+    hash.update('\0')
+    hash.update(readFileSync(path))
+    hash.update('\0')
+  }
+  visit(sourcePath, kind === 'file' ? basename(sourcePath) : '')
+  return { fingerprint: hash.digest('hex'), fileCount, bytes }
+}
+
+function destinationExists(name: string, target: ImportTarget, workspacePath?: string): boolean {
+  const root = skillRoot(target, workspacePath ?? '')
+  return existsSync(join(root, name)) || existsSync(join(root, `${name}.md`))
+}
+
+/** Resolve immediate child skill directories and flat Markdown skills. */
+function batchSources(root: string): Array<{ path: string; kind: 'directory' | 'file'; label: string }> {
+  const ownSkill = join(root, 'SKILL.md')
+  if (existsSync(ownSkill)) return [{ path: root, kind: 'directory', label: basename(root) }]
+  const sources: Array<{ path: string; kind: 'directory' | 'file'; label: string }> = []
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const path = join(root, entry.name)
+    if (entry.isSymbolicLink()) continue
+    if (entry.isDirectory() && existsSync(join(path, 'SKILL.md'))) {
+      sources.push({ path, kind: 'directory', label: entry.name })
+    } else if (entry.isFile() && ['.md', '.markdown'].includes(extname(entry.name).toLowerCase())) {
+      sources.push({ path, kind: 'file', label: basename(entry.name, extname(entry.name)) })
+    }
+  }
+  return sources
+}
+
+/** Validate a selected skills root without writing anything. */
+export function scanBatch(request: BatchScanRequest): BatchScanSession {
+  if (!isAbsolute(request.sourcePath)) throw new Error('批量导入目录必须是绝对路径')
+  if (!existsSync(request.sourcePath) || !statSync(request.sourcePath).isDirectory()) throw new Error('批量导入目录不存在或不可读')
+  if (request.target !== 'user' && request.workspacePath === undefined) throw new Error('项目目标需要 workspacePath（当前工作区路径）')
+  const sources = batchSources(request.sourcePath)
+  if (sources.length === 0) throw new Error('所选目录中没有找到可导入的技能')
+  if (sources.length > MAX_BATCH_SKILLS) throw new Error(`一次最多扫描 ${MAX_BATCH_SKILLS} 个技能`)
+  const entries: BatchScanEntry[] = []
+  const candidates = new Map<string, BatchCandidate>()
+  const nameRows = new Map<string, number[]>()
+
+  for (const [index, source] of sources.entries()) {
+    const id = String(index + 1)
+    const relativePath = relative(request.sourcePath, source.path) || '.'
+    try {
+      const skillFile = source.kind === 'directory' ? join(source.path, 'SKILL.md') : source.path
+      const text = readFileSync(skillFile, 'utf8')
+      if (Buffer.byteLength(text, 'utf8') > MAX_CONTENT_BYTES) throw new Error(`SKILL.md 超过 ${MAX_CONTENT_BYTES / 1024} KB`)
+      const { frontmatter } = parseSkillFile(text)
+      if (frontmatter.name === undefined) throw new Error('frontmatter 缺少 name 字段')
+      if (!isValidSkillName(frontmatter.name)) throw new Error('name 必须是 kebab-case（小写字母、数字、短横线）')
+      if (frontmatter.description === undefined || frontmatter.description.trim().length === 0) throw new Error('frontmatter 缺少 description 字段')
+      // Reuse the canonical normalizer so scan and single-file import accept the same format.
+      normalizeSkillText(text)
+      const stats = sourceStats(source.path, source.kind)
+      const warnings = source.label === frontmatter.name
+        ? undefined
+        : [`目录或文件名“${source.label}”与技能名“${frontmatter.name}”不一致`]
+      entries.push({
+        id,
+        name: frontmatter.name,
+        description: frontmatter.description,
+        relativePath,
+        status: 'ready',
+        conflict: destinationExists(frontmatter.name, request.target, request.workspacePath),
+        ...(warnings === undefined ? {} : { warnings }),
+      })
+      candidates.set(id, {
+        id,
+        name: frontmatter.name,
+        description: frontmatter.description,
+        sourcePath: source.path,
+        sourceKind: source.kind,
+        fingerprint: stats.fingerprint,
+      })
+      const at = entries.length - 1
+      nameRows.set(frontmatter.name, [...(nameRows.get(frontmatter.name) ?? []), at])
+    } catch (error) {
+      entries.push({
+        id,
+        name: source.label,
+        relativePath,
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+        conflict: false,
+      })
+    }
+  }
+
+  // A duplicate inside the selected batch is ambiguous: every copy is refused.
+  for (const [name, indexes] of nameRows) {
+    if (indexes.length < 2) continue
+    for (const index of indexes) {
+      const entry = entries[index]
+      if (entry === undefined) continue
+      entries[index] = { ...entry, status: 'error', conflict: false, error: `批次内存在重复技能名：${name}` }
+      candidates.delete(entry.id)
+    }
+  }
+
+  return {
+    scanId: randomUUID(),
+    sourcePath: request.sourcePath,
+    target: request.target,
+    ...(request.workspacePath === undefined ? {} : { workspacePath: request.workspacePath }),
+    expiresAt: Date.now() + BATCH_SCAN_TTL_MS,
+    entries,
+    candidates,
+  }
+}
+
+/** Copy one validated candidate into a same-root staging directory, then atomically swap it in. */
+function installBatchCandidate(candidate: BatchCandidate, session: BatchScanSession, replace: boolean): 'imported' | 'replaced' {
+  const fresh = sourceStats(candidate.sourcePath, candidate.sourceKind)
+  if (fresh.fingerprint !== candidate.fingerprint) throw new Error('源技能在确认期间发生变化，请重新扫描')
+  const root = skillRoot(session.target, session.workspacePath ?? '')
+  mkdirSync(root, { recursive: true })
+  const finalDirectory = join(root, candidate.name)
+  const flatFile = join(root, `${candidate.name}.md`)
+  const conflicts = [finalDirectory, flatFile].filter(existsSync)
+  if (conflicts.length > 0 && !replace) throw new Error('目标中已存在同名技能')
+  const staging = join(root, `.${candidate.name}.import-${randomUUID()}`)
+  const backups: Array<{ original: string; backup: string }> = []
+  try {
+    if (candidate.sourceKind === 'directory') {
+      cpSync(candidate.sourcePath, staging, { recursive: true, errorOnExist: true, dereference: false })
+      const skillFile = join(staging, 'SKILL.md')
+      writeFileSync(skillFile, normalizeSkillText(readFileSync(skillFile, 'utf8')), 'utf8')
+    } else {
+      mkdirSync(staging, { recursive: false })
+      writeFileSync(join(staging, 'SKILL.md'), normalizeSkillText(readFileSync(candidate.sourcePath, 'utf8')), 'utf8')
+    }
+    for (const original of conflicts) {
+      const backup = join(root, `.${basename(original)}.backup-${randomUUID()}`)
+      renameSync(original, backup)
+      backups.push({ original, backup })
+    }
+    renameSync(staging, finalDirectory)
+    for (const { backup } of backups) rmSync(backup, { recursive: true, force: true })
+    return conflicts.length > 0 ? 'replaced' : 'imported'
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true })
+    if (existsSync(finalDirectory) && backups.length > 0) rmSync(finalDirectory, { recursive: true, force: true })
+    for (const { original, backup } of backups.reverse()) {
+      if (existsSync(backup)) renameSync(backup, original)
+    }
+    throw error
+  }
+}
+
+/** Commit a valid, unexpired scan once; invalid rows are returned as errors and never written. */
+export function commitBatch(session: BatchScanSession, replaceNames: ReadonlySet<string>): BatchCommitEntry[] {
+  if (Date.now() > session.expiresAt) throw new Error('批量扫描结果已过期，请重新扫描')
+  const results: BatchCommitEntry[] = []
+  for (const entry of session.entries) {
+    if (entry.status === 'error') {
+      results.push({ name: entry.name, status: 'error', message: entry.error })
+      continue
+    }
+    const candidate = session.candidates.get(entry.id)
+    if (candidate === undefined) {
+      results.push({ name: entry.name, status: 'error', message: '扫描记录不完整，请重新扫描' })
+      continue
+    }
+    const conflict = destinationExists(entry.name, session.target, session.workspacePath)
+    if (conflict && !replaceNames.has(entry.name)) {
+      results.push({ name: entry.name, status: 'skipped', message: '目标中已存在同名技能，未选择替换' })
+      continue
+    }
+    try {
+      results.push({ name: entry.name, status: installBatchCandidate(candidate, session, conflict && replaceNames.has(entry.name)) })
+    } catch (error) {
+      results.push({ name: entry.name, status: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  return results
 }
 
 /** Strip HTML down to a plain-Markdown-ish text body (best effort). */

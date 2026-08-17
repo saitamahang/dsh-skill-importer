@@ -29,7 +29,10 @@ import type { SkillImporterProps } from './SkillImporterSection.tsx'
 import { SkillsPicker } from './SkillsPicker.tsx'
 import type { SkillsPickerProps } from './SkillsPicker.tsx'
 import { en, NS, zh, type SkillImporterKey } from './locales.ts'
-import type { DeleteRequest, ErrorResponse, ImportRequest, ImportResponse, ImportUrlRequest, SkillListResponse } from '../types.ts'
+import type {
+  BatchCommitRequest, BatchCommitResponse, BatchScanRequest, BatchScanResponse,
+  DeleteRequest, ErrorResponse, ImportRequest, ImportResponse, ImportUrlRequest, SkillListResponse,
+} from '../types.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -56,6 +59,12 @@ export interface SkillImporterInjected {
     importUrl: (request: ImportUrlRequest) => Promise<string>
     /** Delete one installed skill copy via the host route. */
     deleteSkill: (request: DeleteRequest) => Promise<boolean>
+    /** Open dsh's native host directory chooser. */
+    pickDirectory: () => Promise<string | null>
+    /** Validate one local skills root without writing. */
+    scanBatch: (request: BatchScanRequest) => Promise<BatchScanResponse>
+    /** Commit one preflight once, replacing only explicitly confirmed names. */
+    commitBatch: (request: BatchCommitRequest) => Promise<BatchCommitResponse>
   }
 }
 
@@ -68,6 +77,8 @@ const ROUTES = {
   import: '/skill-importer/import',
   importUrl: '/skill-importer/import-url',
   delete: '/skill-importer/delete',
+  batchScan: '/skill-importer/batch/scan',
+  batchCommit: '/skill-importer/batch/commit',
 } as const
 
 /** Fetch one route and unwrap the JSON envelope; throws on transport/HTTP errors. */
@@ -232,6 +243,18 @@ export function apply(ctx: ClientContext): void {
     return result.removed
   }
 
+  const pickDirectory = async (): Promise<string | null> => {
+    const response = await connection.api.host.pickDirectory({})
+    if (!response.result.ok) throw new Error(response.result.error.message)
+    return response.result.value.path
+  }
+
+  const scanBatch = (request: BatchScanRequest): Promise<BatchScanResponse> =>
+    call<BatchScanResponse>(ROUTES.batchScan, request)
+
+  const commitBatch = (request: BatchCommitRequest): Promise<BatchCommitResponse> =>
+    call<BatchCommitResponse>(ROUTES.batchCommit, request)
+
   const face = (): SkillImporterInjected => ({
     hooks: {
       skills: {
@@ -249,6 +272,9 @@ export function apply(ctx: ClientContext): void {
       importSkill,
       importUrl,
       deleteSkill,
+      pickDirectory,
+      scanBatch,
+      commitBatch,
     },
   })
 

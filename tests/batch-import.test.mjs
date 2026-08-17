@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { commitBatch, scanBatch } from '../src/server.ts'
+
+const sandbox = mkdtempSync(join(tmpdir(), 'dsh-batch-test-'))
+process.env.DSH_HOME = join(sandbox, 'home')
+
+const skill = (name, description = `Description for ${name}`) => `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
+
+try {
+  const source = join(sandbox, 'source')
+  mkdirSync(source, { recursive: true })
+
+  // A complete directory skill proves resources survive the migration.
+  mkdirSync(join(source, 'alpha', 'scripts'), { recursive: true })
+  writeFileSync(join(source, 'alpha', 'SKILL.md'), skill('alpha'))
+  writeFileSync(join(source, 'alpha', 'scripts', 'run.sh'), 'echo alpha\n')
+
+  // Invalid metadata must be reported but never written.
+  mkdirSync(join(source, 'invalid'), { recursive: true })
+  writeFileSync(join(source, 'invalid', 'SKILL.md'), '---\nname: invalid\n---\n')
+
+  // Ambiguous names inside one batch refuse every copy.
+  for (const folder of ['dup-a', 'dup-b']) {
+    mkdirSync(join(source, folder), { recursive: true })
+    writeFileSync(join(source, folder, 'SKILL.md'), skill('duplicate'))
+  }
+
+  // Existing destination content is only replaced after explicit confirmation.
+  const existing = join(process.env.DSH_HOME, 'skills', 'alpha')
+  mkdirSync(existing, { recursive: true })
+  writeFileSync(join(existing, 'SKILL.md'), skill('alpha', 'old'))
+
+  const scan = scanBatch({ sourcePath: source, target: 'user' })
+  assert.equal(scan.entries.find(row => row.name === 'alpha')?.conflict, true)
+  assert.equal(scan.entries.find(row => row.name === 'invalid')?.status, 'error')
+  assert.equal(scan.entries.filter(row => row.name === 'duplicate' && row.status === 'error').length, 2)
+
+  const results = commitBatch(scan, new Set(['alpha']))
+  assert.equal(results.find(row => row.name === 'alpha')?.status, 'replaced')
+  assert.equal(results.filter(row => row.name === 'duplicate' && row.status === 'error').length, 2)
+  assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'alpha', 'scripts', 'run.sh')), true)
+  assert.match(readFileSync(join(process.env.DSH_HOME, 'skills', 'alpha', 'SKILL.md'), 'utf8'), /Description for alpha/)
+  assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'invalid')), false)
+  assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'duplicate')), false)
+
+  // A changed source invalidates the preflight and leaves no partial destination.
+  const changedSource = join(sandbox, 'changed')
+  mkdirSync(join(changedSource, 'beta'), { recursive: true })
+  writeFileSync(join(changedSource, 'beta', 'SKILL.md'), skill('beta'))
+  const changedScan = scanBatch({ sourcePath: changedSource, target: 'user' })
+  writeFileSync(join(changedSource, 'beta', 'SKILL.md'), skill('beta', 'changed after scan'))
+  const changedResults = commitBatch(changedScan, new Set())
+  assert.equal(changedResults[0]?.status, 'error')
+  assert.match(changedResults[0]?.message ?? '', /发生变化/)
+  assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'beta')), false)
+
+  const empty = join(sandbox, 'empty')
+  mkdirSync(empty)
+  assert.throws(() => scanBatch({ sourcePath: empty, target: 'user' }), /没有找到/)
+  console.log('batch import test: OK')
+} finally {
+  rmSync(sandbox, { recursive: true, force: true })
+}
