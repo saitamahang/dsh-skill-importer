@@ -53,26 +53,49 @@ All three fill the composer with the same highlighted `/name ` gesture; sending 
 
 ## Installation
 
-### 1. Add the plugin to the Web profile
+### First install
 
 ```sh
-dsh plugin --profile web add dsh-skill-importer
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
 ```
 
-### 2. Enable it in the profile
+The plugin registers itself with the Web profile through `dsh.bundle`; do not edit `cordis.patch.yml` manually.
 
-Add the following entry to `$DSH_HOME/profiles/web/cordis.patch.yml`:
+Restart dsh Web after installation:
 
-```yaml
-- id: skill-importer
-  name: dsh-skill-importer
+```sh
+npx @deepseek-ai/dsh web
 ```
 
-### 3. Restart dsh Web
+### Update to the latest version
+
+Existing users can run the same command to update:
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
+```
+
+Updating replaces only the plugin package. It does not remove project skills in `.agents/skills` or global skills in `~/.dsh/skills`. Restart dsh Web after updating.
+
+Check the latest published version:
+
+```sh
+npm view dsh-skill-importer version
+```
+
+List the plugins installed in the Web profile:
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web list
+```
 
 Open **Settings → Skills**. Import a Markdown file or URL, or choose **Batch import** to migrate another agent's complete skills directory. Choose a target and the imported skills will appear as soon as the filesystem watcher discovers them.
 
-> Requires DeepSeek Harness `>= 0.1.0-rc.6` via `npx @deepseek-ai/dsh web`.
+> Requires DeepSeek Harness `>= 0.1.0-rc.6`.
+
+### Duplicate plugin after upgrading
+
+If startup fails with `duplicate loader entry id: skill-importer`, the profile still contains the old manual configuration. Remove the manually added `skill-importer` entry from `$DSH_HOME/profiles/web/cordis.patch.yml`, then restart dsh Web. Current releases register automatically and do not need that entry.
 
 ## How it works
 
@@ -124,7 +147,7 @@ npm run build
 dsh plugin --profile web add /path/to/dsh-skill-importer
 ```
 
-Add the profile entry shown above, then restart dsh Web.
+If `dsh` is not installed globally, replace the last line with `npx @deepseek-ai/dsh plugin --profile web add /path/to/dsh-skill-importer`. The plugin registers automatically; restart dsh Web afterward.
 
 ## Notes
 

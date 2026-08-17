@@ -53,26 +53,49 @@
 
 ## 安装
 
-### 1. 安装到 Web profile
+### 首次安装
 
 ```sh
-dsh plugin --profile web add dsh-skill-importer
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
 ```
 
-### 2. 在 profile 中启用
+插件通过 `dsh.bundle` 自动注册到 Web profile，无需手动修改 `cordis.patch.yml`。
 
-向 `$DSH_HOME/profiles/web/cordis.patch.yml` 添加：
+安装完成后重启 dsh Web：
 
-```yaml
-- id: skill-importer
-  name: dsh-skill-importer
+```sh
+npx @deepseek-ai/dsh web
 ```
 
-### 3. 重启 dsh Web
+### 更新到最新版
+
+已安装用户执行同一条命令即可更新：
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
+```
+
+更新只会替换插件包，不会删除 `.agents/skills` 中的项目技能或 `~/.dsh/skills` 中的全局技能。更新后请重启 dsh Web。
+
+查看 npm 上的最新版本：
+
+```sh
+npm view dsh-skill-importer version
+```
+
+查看 Web profile 中已安装的插件：
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web list
+```
 
 打开 **设置 → 技能**，选择 Markdown 文件、粘贴 URL，或通过「批量导入」迁移其他 Agent 的完整技能目录，再选择目标范围。文件系统 watcher 发现后，技能会立即出现。
 
-> 需要 DeepSeek Harness `>= 0.1.0-rc.6`，使用 `npx @deepseek-ai/dsh web` 运行。
+> 需要 DeepSeek Harness `>= 0.1.0-rc.6`。
+
+### 旧配置导致重复插件
+
+如果启动时报错 `duplicate loader entry id: skill-importer`，说明 profile 中还保留了旧版手动配置。请从 `$DSH_HOME/profiles/web/cordis.patch.yml` 删除手动添加的 `skill-importer` 条目，再重启 dsh Web。当前版本会自动注册，不需要保留该条目。
 
 ## 工作原理
 
@@ -124,7 +147,7 @@ npm run build
 dsh plugin --profile web add /path/to/dsh-skill-importer
 ```
 
-随后添加上文的 profile 配置并重启 dsh Web。
+如果没有全局 `dsh` 命令，可将最后一行替换为 `npx @deepseek-ai/dsh plugin --profile web add /path/to/dsh-skill-importer`。插件会自动注册，随后重启 dsh Web 即可。
 
 ## 注意事项
 
