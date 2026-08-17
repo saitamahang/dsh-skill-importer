@@ -70,6 +70,17 @@ function TrashIcon(): ReactNode {
   )
 }
 
+function ChevronIcon({ open }: { open: boolean }): ReactNode {
+  return (
+    <svg
+      width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"
+      style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 120ms ease' }}
+    >
+      <path d="m5 3.25 3.75 3.75L5 10.75" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** Read a picked file's text (browser-local; nothing crosses the wire except the import itself). */
 function readFileText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -96,6 +107,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [listState, setListState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [listError, setListError] = useState<string>()
   const [listEpoch, setListEpoch] = useState(0)
+  const [collapsedSources, setCollapsedSources] = useState<ReadonlySet<ImportTarget>>(() => new Set())
   useEffect(() => {
     let cancelled = false
     setListState('loading')
@@ -249,6 +261,14 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     return undefined
   }
 
+  const toggleSource = (source: ImportTarget): void => {
+    setCollapsedSources((current) => {
+      const next = new Set(current)
+      if (!next.delete(source)) next.add(source)
+      return next
+    })
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 720 }}>
       {/* Entry points */}
@@ -280,26 +300,29 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
             {(['project-agents', 'project-dsh', 'user'] as const).map((source) => {
               const rows = skills.filter((skill) => skill.source === source)
               if (rows.length === 0) return null
-              const sourceName = source === 'project-agents'
-                ? t('sourceAgentsName')
-                : source === 'project-dsh'
-                  ? t('sourceDshName')
-                  : t('sourceUserName')
-              const sourcePath = source === 'project-agents'
-                ? '.agents/skills'
-                : source === 'project-dsh'
-                  ? '.dsh/skills'
-                  : '~/.dsh/skills'
+              const sourceName = source === 'user'
+                ? t('targetUser')
+                : workspace === undefined
+                  ? t('targetProjectNoWorkspace')
+                  : source === 'project-agents'
+                    ? t('targetProjectAgents', { title: workspace.title })
+                    : t('targetProjectDsh', { title: workspace.title })
+              const open = !collapsedSources.has(source)
               return (
                 <section key={source} style={skillGroupCardStyle}>
-                  <div style={skillGroupHeaderStyle}>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => toggleSource(source)}
+                    style={{ ...skillGroupHeaderStyle, borderBottom: open ? skillGroupHeaderStyle.borderBottom : 'none' }}
+                  >
+                    <span style={skillGroupChevronStyle}><ChevronIcon open={open} /></span>
                     <div style={skillGroupIdentityStyle}>
                       <span style={skillGroupNameStyle}>{sourceName}</span>
-                      <code style={skillGroupPathStyle}>{sourcePath}</code>
                     </div>
                     <span style={countBadgeStyle}>{rows.length}</span>
-                  </div>
-                  <ul style={skillListStyle}>
+                  </button>
+                  {open ? <ul style={skillListStyle}>
                     {rows.map((skill, index) => {
                       const flag = flags(skill)
                       return (
@@ -325,7 +348,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                         </li>
                       )
                     })}
-                  </ul>
+                  </ul> : null}
                 </section>
               )
             })}
@@ -525,6 +548,7 @@ const skillGroupCardStyle: CSSProperties = {
 }
 
 const skillGroupHeaderStyle: CSSProperties = {
+  width: '100%',
   minHeight: 42,
   padding: '7px 12px',
   boxSizing: 'border-box',
@@ -532,7 +556,23 @@ const skillGroupHeaderStyle: CSSProperties = {
   alignItems: 'center',
   gap: 10,
   borderBottom: '1px solid var(--dsw-alias-border-l2)',
+  borderTop: 'none',
+  borderRight: 'none',
+  borderLeft: 'none',
   background: 'var(--dsw-alias-bg-module-platform)',
+  color: 'inherit',
+  font: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+}
+
+const skillGroupChevronStyle: CSSProperties = {
+  flex: 'none',
+  width: 18,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--dsw-alias-label-caption)',
 }
 
 const skillGroupIdentityStyle: CSSProperties = {
@@ -549,15 +589,6 @@ const skillGroupNameStyle: CSSProperties = {
   lineHeight: '20px',
   fontWeight: 500,
   color: 'var(--dsw-alias-label-primary)',
-}
-
-const skillGroupPathStyle: CSSProperties = {
-  padding: 0,
-  background: 'transparent',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 11,
-  lineHeight: '16px',
-  color: 'var(--dsw-alias-label-tertiary)',
 }
 
 const countBadgeStyle: CSSProperties = {
