@@ -28,6 +28,7 @@ import { SkillImporterSection } from './SkillImporterSection.tsx'
 import type { SkillImporterProps } from './SkillImporterSection.tsx'
 import { SkillsPicker } from './SkillsPicker.tsx'
 import type { SkillsPickerProps } from './SkillsPicker.tsx'
+import { requestComposerFocus } from './composerFocus.ts'
 import { en, NS, zh, type SkillImporterKey } from './locales.ts'
 import type {
   BatchCommitRequest, BatchCommitResponse, BatchScanRequest, BatchScanResponse,
@@ -213,7 +214,14 @@ export function apply(ctx: ClientContext): void {
             // becomes `/name ` — never `/name /s`. Text after the token
             // (the command's own argument, if any) is preserved.
             const rest = input.state.getSnapshot().draft.replace(/^\s*\/[a-zA-Z][a-zA-Z0-9-]*\s*/, '')
-            input.setDraft(`/${option.id} ${rest}`)
+            const prefix = `/${option.id} `
+            const nextDraft = `${prefix}${rest}`
+            input.setDraft(nextDraft)
+            requestComposerFocus({
+              sessionId: session.sessionId,
+              expectedDraft: nextDraft,
+              caret: prefix.length,
+            })
           },
         },
       })

@@ -15,6 +15,19 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChecklistOutline14, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SkillImporterInjected } from './index.ts'
+import { atomicSkillArrow, atomicSkillBackspace } from './atomicSkillDelete.ts'
+import { COMPOSER_FOCUS_EVENT, type ComposerFocusRequest } from './composerFocus.ts'
+
+/** Find the one composer textarea owned by the picker nearest in the slot tree. */
+function composerTextareaFor(root: HTMLElement | null): HTMLTextAreaElement | undefined {
+  let node = root?.parentElement
+  while (node !== null && node !== undefined) {
+    const textareas = node.querySelectorAll('textarea')
+    if (textareas.length > 0) return textareas.length === 1 ? textareas[0] : undefined
+    node = node.parentElement
+  }
+  return undefined
+}
 
 /** Props the renderer binds for the picker. */
 export type SkillsPickerProps =
@@ -23,13 +36,16 @@ export type SkillsPickerProps =
   & InjectFace<SkillImporterInjected>
 
 /** One row of the composer skill picker. */
-export function SkillsPicker({ t, useSkills, useInput, inputActions, actions }: SkillsPickerProps): ReactNode {
+export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, actions }: SkillsPickerProps): ReactNode {
   const skills = useSkills((value) => value)
   const input = useInput((value) => value.draft)
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
+  const draftRef = useRef(input)
+  const skillNamesRef = useRef<readonly string[]>([])
+  const caretFrameRef = useRef<number>()
 
   // Refresh the catalog while the picker is visible, so newly imported skills
   // appear without a page reload.
@@ -52,6 +68,83 @@ export function SkillsPicker({ t, useSkills, useInput, inputActions, actions }: 
 
   // Nothing to pick without skills.
   const usable = skills.filter((skill) => skill.userInvocable)
+  draftRef.current = input
+  skillNamesRef.current = usable.map((skill) => skill.name)
+
+  const scheduleComposerFocus = (expectedDraft: string, caret: number): void => {
+    const textarea = composerTextareaFor(rootRef.current)
+    if (caretFrameRef.current !== undefined) window.cancelAnimationFrame(caretFrameRef.current)
+    caretFrameRef.current = window.requestAnimationFrame(() => {
+      caretFrameRef.current = undefined
+      if (textarea === undefined || !textarea.isConnected || textarea.value !== expectedDraft) return
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(caret, caret)
+    })
+  }
+
+  // `/skills` is owned by DSH's popupSelect shell rather than this component.
+  // Route its post-selection focus request back to the matching session only.
+  useEffect(() => {
+    const onFocusRequest = (event: Event): void => {
+      const request = (event as CustomEvent<ComposerFocusRequest>).detail
+      if (request.sessionId !== sessionId) return
+      scheduleComposerFocus(request.expectedDraft, request.caret)
+    }
+    window.addEventListener(COMPOSER_FOCUS_EVENT, onFocusRequest)
+    return () => window.removeEventListener(COMPOSER_FOCUS_EVENT, onFocusRequest)
+  }, [sessionId])
+
+  // DSH does not expose the private composer keyboard face to plugins. Keep
+  // this enhancement deliberately narrow: one captured Backspace over the
+  // active textarea, only when this session's picker and draft own it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!['Backspace', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.shiftKey && event.key !== 'Backspace') return
+      const textarea = event.target
+      if (!(textarea instanceof HTMLTextAreaElement) || document.activeElement !== textarea) return
+      if (composerTextareaFor(rootRef.current) !== textarea || textarea.value !== draftRef.current) return
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      if (start === null || end === null || start !== end) return
+
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        const caret = atomicSkillArrow(
+          draftRef.current,
+          start,
+          event.key === 'ArrowLeft' ? 'left' : 'right',
+          skillNamesRef.current,
+        )
+        if (caret === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        textarea.setSelectionRange(caret, caret)
+        return
+      }
+
+      const edit = atomicSkillBackspace(draftRef.current, start, skillNamesRef.current)
+      if (edit === undefined) return
+      event.preventDefault()
+      event.stopPropagation()
+      inputActions.setDraft(edit.draft)
+
+      if (caretFrameRef.current !== undefined) window.cancelAnimationFrame(caretFrameRef.current)
+      caretFrameRef.current = window.requestAnimationFrame(() => {
+        caretFrameRef.current = undefined
+        if (!textarea.isConnected || document.activeElement !== textarea || textarea.value !== edit.draft) return
+        textarea.setSelectionRange(edit.caret, edit.caret)
+      })
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      if (caretFrameRef.current !== undefined) window.cancelAnimationFrame(caretFrameRef.current)
+    }
+  }, [inputActions])
+
   if (usable.length === 0) return null
 
   const filtered = query.trim().length === 0
@@ -59,10 +152,16 @@ export function SkillsPicker({ t, useSkills, useInput, inputActions, actions }: 
     : usable.filter((skill) => skill.name.toLowerCase().includes(query.trim().toLowerCase()))
 
   const onSelect = (name: string): void => {
+    const prefix = `/${name} `
+    const nextDraft = `${prefix}${input}`
     setOpen(false)
     // Prefix the draft with the `/name ` gesture, preserving what the user
     // already typed. setDraft is the input machine's single public write path.
-    inputActions.setDraft(`/${name} ${input}`)
+    inputActions.setDraft(nextDraft)
+
+    // The custom picker owns its search focus, unlike DSH's popupSelect shell.
+    // Return focus explicitly and place the caret immediately after the skill.
+    scheduleComposerFocus(nextDraft, prefix.length)
   }
 
   return (
