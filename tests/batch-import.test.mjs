@@ -70,13 +70,19 @@ try {
   assert.match(changedResults[0]?.message ?? '', /发生变化/)
   assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'beta')), false)
 
+  // Any agent may use its own parent directory; the selected root name is the boundary.
+  const customAgentSource = join(sandbox, 've_hcs_agent', 'skills')
+  mkdirSync(join(customAgentSource, 'gamma'), { recursive: true })
+  writeFileSync(join(customAgentSource, 'gamma', 'SKILL.md'), skill('gamma'))
+  assert.equal(scanBatch({ sourcePath: customAgentSource, target: 'user' }).entries[0]?.name, 'gamma')
+
   const empty = join(sandbox, '.agents', 'skills')
   mkdirSync(empty, { recursive: true })
   assert.throws(() => scanBatch({ sourcePath: empty, target: 'user' }), /没有找到/)
 
   const arbitrary = join(sandbox, 'arbitrary')
   mkdirSync(arbitrary)
-  assert.throws(() => scanBatch({ sourcePath: arbitrary, target: 'user' }), /仅支持/)
+  assert.throws(() => scanBatch({ sourcePath: arbitrary, target: 'user' }), /名为 skills/)
 
   assert.equal(originAllowed({ headers: {} }), false)
   assert.equal(originAllowed({ headers: { origin: 'https://evil.example' } }), false)

@@ -34,7 +34,6 @@ export const MAX_BATCH_SKILL_BYTES = 10 * 1024 * 1024
 export const BATCH_SCAN_TTL_MS = 10 * 60 * 1000
 
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const AGENT_SKILL_PARENTS = new Set(['.agents', '.claude', '.codex', '.dsh'])
 const MAX_URL_REDIRECTS = 5
 
 /** The harness home (`$DSH_HOME`, defaulting to `~/.dsh`). */
@@ -284,13 +283,12 @@ export function scanBatch(request: BatchScanRequest): BatchScanSession {
   if (!isAbsolute(request.sourcePath)) throw new Error('批量导入目录必须是绝对路径')
   if (!existsSync(request.sourcePath) || !statSync(request.sourcePath).isDirectory()) throw new Error('批量导入目录不存在或不可读')
   const sourcePath = realpathSync(request.sourcePath)
-  const leaf = basename(sourcePath)
-  const parent = basename(dirname(sourcePath))
-  const grandparent = basename(dirname(dirname(sourcePath)))
-  const isSkillsRoot = leaf === 'skills' && AGENT_SKILL_PARENTS.has(parent)
-  const isSkillDirectory = parent === 'skills' && AGENT_SKILL_PARENTS.has(grandparent)
+  const leaf = basename(sourcePath).toLowerCase()
+  const parent = basename(dirname(sourcePath)).toLowerCase()
+  const isSkillsRoot = leaf === 'skills'
+  const isSkillDirectory = parent === 'skills'
   if (!isSkillsRoot && !isSkillDirectory) {
-    throw new Error('批量导入仅支持 .claude、.codex、.agents 或 .dsh 下的 skills 目录')
+    throw new Error('批量导入仅支持名为 skills 的目录或其中的单个技能目录')
   }
   if (request.target !== 'user' && request.workspacePath === undefined) throw new Error('项目目标需要 workspacePath（当前工作区路径）')
   const sources = batchSources(sourcePath)

@@ -160,7 +160,13 @@ export function apply(ctx: Context): void {
         }
         const workspacePath = requireWorkspace(body.target, body.workspacePath)
         pruneBatchScans()
-        const session = scanBatch({ sourcePath: body.sourcePath, target: body.target, workspacePath })
+        let session: BatchScanSession
+        try {
+          session = scanBatch({ sourcePath: body.sourcePath, target: body.target, workspacePath })
+        } catch (error) {
+          sendError(res, 400, error instanceof Error ? error.message : String(error))
+          return
+        }
         batchScans.set(session.scanId, session)
         sendJson(res, 200, {
           ok: true,

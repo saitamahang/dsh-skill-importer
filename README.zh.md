@@ -171,7 +171,7 @@ dsh plugin --profile web add /path/to/dsh-skill-importer
 ## 注意事项
 
 - 单个导入文件最大 256 KB。
-- 批量导入仅接受 `.claude/skills`、`.codex/skills`、`.agents/skills`、`.dsh/skills` 或其中的单个技能目录；每次最多扫描 200 个技能，单个技能最多包含 2,000 个文件和 10 MB 资源，不接受符号链接。
+- 批量导入接受任意 Agent 中名为 `skills` 的目录（例如 `.claude/skills`、`.codex/skills`、项目自定义的 `agent/skills`）或其中的单个技能目录；每次最多扫描 200 个技能，单个技能最多包含 2,000 个文件和 10 MB 资源，不接受符号链接。
 - URL 导入仅支持 HTTPS，并拒绝本机、私有网络、链路本地和保留地址；每次重定向都会重新校验。`.md` 会原样保留，HTML 页面仅做轻量正文提取，因此推荐使用 Markdown 直链。
 - 导入后列表会短暂轮询（每 2 秒一次，最多 20 秒）；外部改动可点击 **刷新** 立即同步。
 

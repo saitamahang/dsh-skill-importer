@@ -171,7 +171,7 @@ If `dsh` is not installed globally, replace the last line with `npx @deepseek-ai
 ## Notes
 
 - A single imported file may be up to 256 KB.
-- Batch import accepts `.claude/skills`, `.codex/skills`, `.agents/skills`, `.dsh/skills`, or one skill directory directly below those roots. A scan accepts up to 200 skills; each skill may contain up to 2,000 files and 10 MB of resources. Symbolic links are refused.
+- Batch import accepts any agent directory named `skills` (for example `.claude/skills`, `.codex/skills`, or a custom `agent/skills`) or one skill directory directly below it. A scan accepts up to 200 skills; each skill may contain up to 2,000 files and 10 MB of resources. Symbolic links are refused.
 - URL import is HTTPS-only and refuses loopback, private, link-local, and reserved addresses; every redirect is validated again. `.md` sources are preserved, while HTML pages use lightweight text extraction, so direct Markdown URLs work best.
 - The installed list polls briefly after import (every 2 seconds for up to 20 seconds). **Refresh** syncs external changes immediately.
 
