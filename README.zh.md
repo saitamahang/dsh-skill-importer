@@ -4,6 +4,7 @@
   <br />
 
   <strong>把技能管理带进 DeepSeek Harness Web UI。</strong><br />
+  在 DeepSeek Harness、Claude Code、Codex 等 AI 编程 Agent 之间导入、校验、去重和迁移技能。<br />
   无需会话、不耗模型 Token、没有审批往返，导入后立即可用。
 
   <br /><br />
@@ -27,6 +28,13 @@
 | 导入 | 管理 | 调用 |
 | :--- | :--- | :--- |
 | 上传 `SKILL.md`、粘贴 URL，或从 Claude Code、Codex 等 Agent 的技能目录完整迁移。 | 按项目和全局目录分组查看，每个副本都能独立删除。 | 使用输入框选择器、运行 `/skills`，或直接输入 `/skill-name`。 |
+
+### 实际使用效果
+
+| `/skills` 命令 | 输入框技能选择器 |
+| :---: | :---: |
+| <img src="assets/screenshots/skills-command.png" alt="从 /skills 命令中选择技能" width="100%" /> | <img src="assets/screenshots/composer-picker.png" alt="从输入框下方的技能选择器中选择技能" width="100%" /> |
+| 无需离开输入框，直接从命令面板选择技能。 | 从输入框下方打开技能库，一键插入所选技能。 |
 
 ### 为高速工作流而生
 

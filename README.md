@@ -4,7 +4,8 @@
   <br />
 
   <strong>Bring skill management into the DeepSeek Harness Web UI.</strong><br />
-  Import, discover, and invoke skills without a session, model tokens, or approval round-trips.
+  Import, validate, deduplicate, and migrate Agent Skills across DeepSeek Harness, Claude Code, Codex, and other AI coding agents.<br />
+  Discover and invoke them without a session, model tokens, or approval round-trips.
 
   <br /><br />
 
@@ -27,6 +28,13 @@
 | Import | Organize | Invoke |
 | :--- | :--- | :--- |
 | Upload `SKILL.md`, paste a URL, or migrate a complete skills directory from Claude Code, Codex, and similar agents. | Browse skills grouped across project and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
+
+### See it in action
+
+| `/skills` command | Composer picker |
+| :---: | :---: |
+| <img src="assets/screenshots/skills-command.png" alt="Choose a skill from the /skills command" width="100%" /> | <img src="assets/screenshots/composer-picker.png" alt="Choose a skill from the composer picker" width="100%" /> |
+| Choose a skill from the command palette without leaving the composer. | Open the skill library from the composer footer and insert it in one click. |
 
 ### Built for a fast loop
 
