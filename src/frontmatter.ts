@@ -64,11 +64,15 @@ function parseScalar(raw: string): string | boolean | undefined {
  */
 export function parseSkillFile(text: string): ParsedSkillFile {
   const frontmatter: SkillFrontmatter = {}
-  if (!text.startsWith('---\n')) return { frontmatter, body: text }
-  const end = text.indexOf('\n---', 4)
+  // Normalize platform line endings before locating and parsing the YAML
+  // fence. This accepts Windows CRLF and legacy CR files while keeping the
+  // canonical output produced by normalizeSkillText consistently LF-based.
+  const normalized = text.replace(/\r\n?/g, '\n')
+  if (!normalized.startsWith('---\n')) return { frontmatter, body: text }
+  const end = normalized.indexOf('\n---', 4)
   if (end < 0) return { frontmatter, body: text }
-  const block = text.slice(4, end)
-  const body = text.slice(end + 4).replace(/^\n/, '')
+  const block = normalized.slice(4, end)
+  const body = normalized.slice(end + 4).replace(/^\n/, '')
   for (const line of block.split('\n')) {
     const colon = line.indexOf(':')
     if (colon <= 0) continue
