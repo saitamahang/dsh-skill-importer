@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/hero.svg" alt="dsh-skill-importer — Skills, right where you need them" width="100%" />
+  <img src="assets/social-preview.jpg" alt="dsh-skill-importer — Agent Skills, safely migrated" width="100%" />
 
   <br />
 
