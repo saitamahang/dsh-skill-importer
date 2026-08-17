@@ -78,7 +78,7 @@ export function apply(ctx: Context): void {
         }
         const body = await readJsonBody(req) as Partial<ImportRequest>
         if (typeof body.name !== 'string' || typeof body.content !== 'string'
-          || body.target !== 'user' && body.target !== 'project-agents' && body.target !== 'project-dsh') {
+          || body.target !== 'user' && body.target !== 'project-agents') {
           sendError(res, 400, '请求缺少 name / content / target 字段')
           return
         }
@@ -97,7 +97,7 @@ export function apply(ctx: Context): void {
         }
         const body = await readJsonBody(req) as Partial<ImportUrlRequest>
         if (typeof body.name !== 'string' || typeof body.url !== 'string'
-          || body.target !== 'user' && body.target !== 'project-agents' && body.target !== 'project-dsh') {
+          || body.target !== 'user' && body.target !== 'project-agents') {
           sendError(res, 400, '请求缺少 name / url / target 字段')
           return
         }
@@ -116,7 +116,7 @@ export function apply(ctx: Context): void {
         }
         const body = await readJsonBody(req) as Partial<DeleteRequest>
         if (typeof body.name !== 'string'
-          || body.source !== 'user' && body.source !== 'project-agents' && body.source !== 'project-dsh') {
+          || body.source !== 'user' && body.source !== 'project-agents') {
           sendError(res, 400, '请求缺少 name / source 字段')
           return
         }

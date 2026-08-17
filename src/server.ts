@@ -35,16 +35,14 @@ export function skillRoot(target: ImportTarget, workspacePath: string): string {
       return join(dshHomeDir(), 'skills')
     case 'project-agents':
       return join(workspacePath, '.agents', 'skills')
-    case 'project-dsh':
-      return join(workspacePath, '.dsh', 'skills')
   }
 }
 
 /** Discovery rank per root (lower wins), mirroring dsh-skill-filesystem. */
-const ROOT_RANK: Record<ImportTarget, number> = { 'project-dsh': 100, 'project-agents': 200, user: 400 }
+const ROOT_RANK: Record<ImportTarget, number> = { 'project-agents': 200, user: 400 }
 
 /** Scan order: project roots first so project skills win duplicate names. */
-const SCAN_ORDER: readonly ImportTarget[] = ['project-dsh', 'project-agents', 'user']
+const SCAN_ORDER: readonly ImportTarget[] = ['project-agents', 'user']
 
 /**
  * Quote one frontmatter string value when plain YAML would mis-parse it:

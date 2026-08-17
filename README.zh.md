@@ -26,7 +26,7 @@
 
 | 导入 | 管理 | 调用 |
 | :--- | :--- | :--- |
-| 上传 `SKILL.md` 或粘贴 URL，写入前自动校验并规范化 frontmatter。 | 按项目、旧版项目和全局目录分组查看，每个副本都能独立删除。 | 使用输入框选择器、运行 `/skills`，或直接输入 `/skill-name`。 |
+| 上传 `SKILL.md` 或粘贴 URL，写入前自动校验并规范化 frontmatter。 | 按项目和全局目录分组查看，每个副本都能独立删除。 | 使用输入框选择器、运行 `/skills`，或直接输入 `/skill-name`。 |
 
 ### 为高速工作流而生
 
@@ -85,12 +85,11 @@ Markdown 文件或 URL
 skills/change → 热刷新
 ```
 
-所有 POST 路由都会校验 `Origin`，仅接受 loopback 来源（`127.0.0.1` 或 `localhost`）。写入范围固定为三个标准目录：
+所有 POST 路由都会校验 `Origin`，仅接受 loopback 来源（`127.0.0.1` 或 `localhost`）。写入范围固定为两个标准目录：
 
 | 范围 | 目录 |
 | :--- | :--- |
 | 项目 | `.agents/skills` |
-| 旧版项目 | `.dsh/skills` |
 | 全局 | `~/.dsh/skills` |
 
 ## 开发

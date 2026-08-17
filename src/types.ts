@@ -5,7 +5,7 @@
  */
 
 /** Where the imported skill file should land. */
-export type ImportTarget = 'user' | 'project-agents' | 'project-dsh'
+export type ImportTarget = 'user' | 'project-agents'
 
 /** One installed skill row served by `/skill-importer/list`. */
 export interface SkillListEntry {
@@ -19,7 +19,7 @@ export interface SkillListEntry {
   readonly modelInvocable: boolean
   /** False marks a model-only skill (`user-invocable: false`). */
   readonly userInvocable: boolean
-  /** Winning discovery root ('project-dsh' | 'project-agents' | 'user'). */
+  /** Skill root (`'project-agents'` or `'user'`). */
   readonly source: ImportTarget
 }
 
@@ -36,7 +36,7 @@ export interface ImportRequest {
 /** Delete-request body. */
 export interface DeleteRequest {
   readonly name: string
-  /** Which root the copy lives in ('user' | 'project-agents' | 'project-dsh'). */
+  /** Which root the copy lives in (`'project-agents'` or `'user'`). */
   readonly source: ImportTarget
   /** Canonical workspace path for project sources (host-validated). */
   readonly workspacePath?: string

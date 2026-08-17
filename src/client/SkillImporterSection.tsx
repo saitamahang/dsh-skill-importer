@@ -297,16 +297,14 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
         ) : null}
         {skills.length > 0 ? (
           <div style={skillGroupsStyle}>
-            {(['project-agents', 'project-dsh', 'user'] as const).map((source) => {
+            {(['project-agents', 'user'] as const).map((source) => {
               const rows = skills.filter((skill) => skill.source === source)
               if (rows.length === 0) return null
               const sourceName = source === 'user'
                 ? t('targetUser')
                 : workspace === undefined
                   ? t('targetProjectNoWorkspace')
-                  : source === 'project-agents'
-                    ? t('targetProjectAgents', { title: workspace.title })
-                    : t('targetProjectDsh', { title: workspace.title })
+                  : t('targetProjectAgents', { title: workspace.title })
               const open = !collapsedSources.has(source)
               return (
                 <section key={source} style={skillGroupCardStyle}>
@@ -460,9 +458,6 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
             >
               <option value="project-agents" disabled={workspace === undefined}>
                 {workspace === undefined ? t('targetProjectNoWorkspace') : t('targetProjectAgents', { title: workspace.title })}
-              </option>
-              <option value="project-dsh" disabled={workspace === undefined}>
-                {workspace === undefined ? t('targetProjectNoWorkspace') : t('targetProjectDsh', { title: workspace.title })}
               </option>
               <option value="user">{t('targetUser')}</option>
             </select>

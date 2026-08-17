@@ -26,7 +26,7 @@
 
 | Import | Organize | Invoke |
 | :--- | :--- | :--- |
-| Upload `SKILL.md` or paste a URL. Frontmatter is validated and normalized before writing. | Browse skills grouped across project, legacy project, and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
+| Upload `SKILL.md` or paste a URL. Frontmatter is validated and normalized before writing. | Browse skills grouped across project and global roots. Remove any copy individually. | Use the composer picker, run `/skills`, or type `/skill-name` directly. |
 
 ### Built for a fast loop
 
@@ -90,7 +90,6 @@ POST routes verify the `Origin` header and only accept loopback sources (`127.0.
 | Scope | Directory |
 | :--- | :--- |
 | Project | `.agents/skills` |
-| Legacy project | `.dsh/skills` |
 | Global | `~/.dsh/skills` |
 
 ## Development
