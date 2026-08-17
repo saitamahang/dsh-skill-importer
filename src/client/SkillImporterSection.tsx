@@ -118,7 +118,9 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [listState, setListState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [listError, setListError] = useState<string>()
   const [listEpoch, setListEpoch] = useState(0)
-  const [collapsedSources, setCollapsedSources] = useState<ReadonlySet<ImportTarget>>(() => new Set())
+  const [collapsedSources, setCollapsedSources] = useState<ReadonlySet<ImportTarget>>(
+    () => new Set<ImportTarget>(['project-agents', 'user']),
+  )
   useEffect(() => {
     let cancelled = false
     setListState('loading')
