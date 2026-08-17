@@ -8,10 +8,12 @@
  * and the skill-filesystem watcher discovers it in place.
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, extname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isValidSkillName, parseSkillFile } from './frontmatter.ts'
 import type {
@@ -32,6 +34,8 @@ export const MAX_BATCH_SKILL_BYTES = 10 * 1024 * 1024
 export const BATCH_SCAN_TTL_MS = 10 * 60 * 1000
 
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const AGENT_SKILL_PARENTS = new Set(['.agents', '.claude', '.codex', '.dsh'])
+const MAX_URL_REDIRECTS = 5
 
 /** The harness home (`$DSH_HOME`, defaulting to `~/.dsh`). */
 export function dshHomeDir(): string {
@@ -279,8 +283,17 @@ function batchSources(root: string): Array<{ path: string; kind: 'directory' | '
 export function scanBatch(request: BatchScanRequest): BatchScanSession {
   if (!isAbsolute(request.sourcePath)) throw new Error('批量导入目录必须是绝对路径')
   if (!existsSync(request.sourcePath) || !statSync(request.sourcePath).isDirectory()) throw new Error('批量导入目录不存在或不可读')
+  const sourcePath = realpathSync(request.sourcePath)
+  const leaf = basename(sourcePath)
+  const parent = basename(dirname(sourcePath))
+  const grandparent = basename(dirname(dirname(sourcePath)))
+  const isSkillsRoot = leaf === 'skills' && AGENT_SKILL_PARENTS.has(parent)
+  const isSkillDirectory = parent === 'skills' && AGENT_SKILL_PARENTS.has(grandparent)
+  if (!isSkillsRoot && !isSkillDirectory) {
+    throw new Error('批量导入仅支持 .claude、.codex、.agents 或 .dsh 下的 skills 目录')
+  }
   if (request.target !== 'user' && request.workspacePath === undefined) throw new Error('项目目标需要 workspacePath（当前工作区路径）')
-  const sources = batchSources(request.sourcePath)
+  const sources = batchSources(sourcePath)
   if (sources.length === 0) throw new Error('所选目录中没有找到可导入的技能')
   if (sources.length > MAX_BATCH_SKILLS) throw new Error(`一次最多扫描 ${MAX_BATCH_SKILLS} 个技能`)
   const entries: BatchScanEntry[] = []
@@ -289,7 +302,7 @@ export function scanBatch(request: BatchScanRequest): BatchScanSession {
 
   for (const [index, source] of sources.entries()) {
     const id = String(index + 1)
-    const relativePath = relative(request.sourcePath, source.path) || '.'
+    const relativePath = relative(sourcePath, source.path) || '.'
     try {
       const skillFile = source.kind === 'directory' ? join(source.path, 'SKILL.md') : source.path
       const text = readFileSync(skillFile, 'utf8')
@@ -348,7 +361,7 @@ export function scanBatch(request: BatchScanRequest): BatchScanSession {
 
   return {
     scanId: randomUUID(),
-    sourcePath: request.sourcePath,
+    sourcePath,
     target: request.target,
     ...(request.workspacePath === undefined ? {} : { workspacePath: request.workspacePath }),
     expiresAt: Date.now() + BATCH_SCAN_TTL_MS,
@@ -451,8 +464,67 @@ function extractHtmlText(html: string): string {
  * @param url - the source URL.
  * @returns the text to write as the skill body.
  */
+function privateIpv4(address: string): boolean {
+  const octets = address.split('.').map(Number)
+  if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return true
+  const [a = 0, b = 0, c = 0] = octets
+  return a === 0 || a === 10 || a === 127 || a >= 224
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && (b === 0 || b === 168 || (b === 0 && c === 2)))
+    || (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100)))
+    || (a === 203 && b === 0 && c === 113)
+}
+
+/** Whether an address is unsafe for a host-side URL import. */
+export function isPrivateAddress(address: string): boolean {
+  const normalized = address.toLowerCase().split('%')[0] ?? ''
+  if (isIP(normalized) === 4) return privateIpv4(normalized)
+  if (isIP(normalized) !== 6) return true
+  if (normalized.startsWith('::ffff:')) return privateIpv4(normalized.slice(7))
+  return normalized === '::' || normalized === '::1'
+    || normalized.startsWith('fc') || normalized.startsWith('fd')
+    || /^fe[89ab]/.test(normalized)
+    || normalized.startsWith('ff')
+    || normalized.startsWith('2001:db8:')
+}
+
+type ResolveHost = (hostname: string) => Promise<readonly { readonly address: string }[]>
+
+const resolveHost: ResolveHost = async hostname => lookup(hostname, { all: true, verbatim: true })
+
+/** Parse and resolve one URL before the host is allowed to request it. */
+export async function assertSafeImportUrl(input: string, resolver: ResolveHost = resolveHost): Promise<URL> {
+  let url: URL
+  try {
+    url = new URL(input)
+  } catch {
+    throw new Error('URL 格式无效')
+  }
+  if (url.protocol !== 'https:') throw new Error('URL 导入仅支持 HTTPS')
+  if (url.username.length > 0 || url.password.length > 0) throw new Error('URL 不能包含登录凭据')
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) throw new Error('URL 不能指向本机或私有网络')
+  const addresses = isIP(hostname) === 0 ? await resolver(hostname) : [{ address: hostname }]
+  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
+    throw new Error('URL 不能指向本机、私有网络或保留地址')
+  }
+  return url
+}
+
 export async function fetchUrlContent(url: string): Promise<string> {
-  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15_000) })
+  let current = await assertSafeImportUrl(url)
+  let response: Response | undefined
+  for (let redirects = 0; redirects <= MAX_URL_REDIRECTS; redirects += 1) {
+    response = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(15_000) })
+    if (![301, 302, 303, 307, 308].includes(response.status)) break
+    if (redirects === MAX_URL_REDIRECTS) throw new Error(`重定向次数超过 ${MAX_URL_REDIRECTS}`)
+    const location = response.headers.get('location')
+    if (location === null) throw new Error('重定向响应缺少 Location')
+    current = await assertSafeImportUrl(new URL(location, current).href)
+  }
+  if (response === undefined) throw new Error('抓取失败')
   if (!response.ok) throw new Error(`抓取失败：HTTP ${response.status}`)
   const type = response.headers.get('content-type') ?? ''
   const text = await response.text()
@@ -503,11 +575,12 @@ export function readJsonBody(req: IncomingMessage, limit: number = MAX_BODY_BYTE
  * Origin fence: the routes are served on the harness's loopback-only web
  * server, so only the browser page itself (or a local curl) reaches them.
  * A cross-origin page (any other website) is refused. Requests without an
- * Origin header (curl, same-origin GET) pass.
+ * Origin header is rejected: all state-changing browser requests include it,
+ * while accepting an absent header would let non-browser clients bypass the fence.
  */
 export function originAllowed(req: IncomingMessage): boolean {
   const origin = req.headers.origin
-  if (origin === undefined) return true
+  if (origin === undefined) return false
   try {
     const hostname = new URL(origin).hostname
     return hostname === '127.0.0.1' || hostname === 'localhost'

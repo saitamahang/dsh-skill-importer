@@ -89,6 +89,25 @@ List the plugins installed in the Web profile:
 npx @deepseek-ai/dsh plugin --profile web list
 ```
 
+#### Supply-chain waiting period for new releases
+
+DSH profiles use pnpm to manage plugins. pnpm's `minimumReleaseAge` policy delays newly published versions; during that window, `@latest` may still resolve to the previous mature release. This is an intentional supply-chain safeguard, not a download failure. The recommended path is to wait for the profile's configured window, then rerun the `@latest` command above.
+
+Pre-1.0 semver ranges also stop at the next minor: for example, `^0.1.2` does not include `0.2.0`. After the waiting period, specify the target version when crossing a minor:
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@X.Y.Z
+```
+
+If you have verified the release and must install it immediately, add a temporary exception for that **exact version** to `$DSH_HOME/profiles/web/pnpm-workspace.yaml`, then run the exact-version command:
+
+```yaml
+minimumReleaseAgeExclude:
+  - dsh-skill-importer@X.Y.Z
+```
+
+Replace both `X.Y.Z` placeholders with the same target version. This opts that version out of the supply-chain waiting period. Do not permanently exempt the package name; remove the exact-version exception after the release matures.
+
 Open **Settings → Skills**. Import a Markdown file or URL, or choose **Batch import** to migrate another agent's complete skills directory. Choose a target and the imported skills will appear as soon as the filesystem watcher discovers them.
 
 > Requires DeepSeek Harness `>= 0.1.0-rc.6`.
@@ -152,8 +171,8 @@ If `dsh` is not installed globally, replace the last line with `npx @deepseek-ai
 ## Notes
 
 - A single imported file may be up to 256 KB.
-- Batch import accepts up to 200 skills per scan; each skill may contain up to 2,000 files and 10 MB of resources. Symbolic links are refused.
-- URL import preserves `.md` sources; HTML pages use lightweight text extraction, so direct Markdown URLs work best.
+- Batch import accepts `.claude/skills`, `.codex/skills`, `.agents/skills`, `.dsh/skills`, or one skill directory directly below those roots. A scan accepts up to 200 skills; each skill may contain up to 2,000 files and 10 MB of resources. Symbolic links are refused.
+- URL import is HTTPS-only and refuses loopback, private, link-local, and reserved addresses; every redirect is validated again. `.md` sources are preserved, while HTML pages use lightweight text extraction, so direct Markdown URLs work best.
 - The installed list polls briefly after import (every 2 seconds for up to 20 seconds). **Refresh** syncs external changes immediately.
 
 ## License

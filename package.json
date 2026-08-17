@@ -36,7 +36,11 @@
     "lib/index.js",
     "lib/client.js",
     "lib/types/**/*.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "src/frontmatter.ts",
+    "src/server.ts",
+    "src/types.ts",
+    "tests/**/*.mjs"
   ],
   "scripts": {
     "build": "rm -rf lib && tsc -p tsconfig.json && tsdown",

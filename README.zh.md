@@ -89,6 +89,25 @@ npm view dsh-skill-importer version
 npx @deepseek-ai/dsh plugin --profile web list
 ```
 
+#### 新版本的安全等待期
+
+DSH profile 使用 pnpm 管理插件。pnpm 会按 `minimumReleaseAge` 暂缓安装刚发布的版本；在等待期内，`@latest` 可能仍解析到上一个已成熟版本。这是供应链保护机制，不是下载失败。推荐等待 profile 配置的时间窗口结束后，再执行上面的 `@latest` 命令。
+
+`0.x` 版本还遵循特殊的 semver 范围：例如 `^0.1.2` 不包含 `0.2.0`。跨 minor 更新时可在等待期结束后明确指定目标版本：
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@X.Y.Z
+```
+
+如果已经核验该版本并且必须立即安装，可在 `$DSH_HOME/profiles/web/pnpm-workspace.yaml` 中为这个**精确版本**添加临时信任例外，再执行精确版本命令：
+
+```yaml
+minimumReleaseAgeExclude:
+  - dsh-skill-importer@X.Y.Z
+```
+
+将两处 `X.Y.Z` 替换为同一个目标版本。这会绕过该版本的供应链等待期，不建议把包名永久加入例外列表。版本成熟后可以删除这条例外。
+
 打开 **设置 → 技能**，选择 Markdown 文件、粘贴 URL，或通过「批量导入」迁移其他 Agent 的完整技能目录，再选择目标范围。文件系统 watcher 发现后，技能会立即出现。
 
 > 需要 DeepSeek Harness `>= 0.1.0-rc.6`。
@@ -152,8 +171,8 @@ dsh plugin --profile web add /path/to/dsh-skill-importer
 ## 注意事项
 
 - 单个导入文件最大 256 KB。
-- 批量导入每次最多扫描 200 个技能；单个技能最多包含 2,000 个文件和 10 MB 资源，不接受符号链接。
-- URL 导入会原样保留 `.md`；HTML 页面仅做轻量正文提取，因此推荐使用 Markdown 直链。
+- 批量导入仅接受 `.claude/skills`、`.codex/skills`、`.agents/skills`、`.dsh/skills` 或其中的单个技能目录；每次最多扫描 200 个技能，单个技能最多包含 2,000 个文件和 10 MB 资源，不接受符号链接。
+- URL 导入仅支持 HTTPS，并拒绝本机、私有网络、链路本地和保留地址；每次重定向都会重新校验。`.md` 会原样保留，HTML 页面仅做轻量正文提取，因此推荐使用 Markdown 直链。
 - 导入后列表会短暂轮询（每 2 秒一次，最多 20 秒）；外部改动可点击 **刷新** 立即同步。
 
 ## License

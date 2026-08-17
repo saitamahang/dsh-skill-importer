@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { commitBatch, scanBatch } from '../src/server.ts'
+import { assertSafeImportUrl, commitBatch, isPrivateAddress, originAllowed, scanBatch } from '../src/server.ts'
 
 const sandbox = mkdtempSync(join(tmpdir(), 'dsh-batch-test-'))
 process.env.DSH_HOME = join(sandbox, 'home')
@@ -10,7 +10,7 @@ process.env.DSH_HOME = join(sandbox, 'home')
 const skill = (name, description = `Description for ${name}`) => `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
 
 try {
-  const source = join(sandbox, 'source')
+  const source = join(sandbox, '.claude', 'skills')
   mkdirSync(source, { recursive: true })
 
   // A complete directory skill proves resources survive the migration.
@@ -47,7 +47,7 @@ try {
   assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'duplicate')), false)
 
   // A changed source invalidates the preflight and leaves no partial destination.
-  const changedSource = join(sandbox, 'changed')
+  const changedSource = join(sandbox, '.codex', 'skills')
   mkdirSync(join(changedSource, 'beta'), { recursive: true })
   writeFileSync(join(changedSource, 'beta', 'SKILL.md'), skill('beta'))
   const changedScan = scanBatch({ sourcePath: changedSource, target: 'user' })
@@ -57,9 +57,34 @@ try {
   assert.match(changedResults[0]?.message ?? '', /发生变化/)
   assert.equal(existsSync(join(process.env.DSH_HOME, 'skills', 'beta')), false)
 
-  const empty = join(sandbox, 'empty')
-  mkdirSync(empty)
+  const empty = join(sandbox, '.agents', 'skills')
+  mkdirSync(empty, { recursive: true })
   assert.throws(() => scanBatch({ sourcePath: empty, target: 'user' }), /没有找到/)
+
+  const arbitrary = join(sandbox, 'arbitrary')
+  mkdirSync(arbitrary)
+  assert.throws(() => scanBatch({ sourcePath: arbitrary, target: 'user' }), /仅支持/)
+
+  assert.equal(originAllowed({ headers: {} }), false)
+  assert.equal(originAllowed({ headers: { origin: 'https://evil.example' } }), false)
+  assert.equal(originAllowed({ headers: { origin: 'http://127.0.0.1:2026' } }), true)
+  assert.equal(isPrivateAddress('127.0.0.1'), true)
+  assert.equal(isPrivateAddress('169.254.169.254'), true)
+  assert.equal(isPrivateAddress('10.0.0.1'), true)
+  assert.equal(isPrivateAddress('::1'), true)
+  assert.equal(isPrivateAddress('8.8.8.8'), false)
+  await assert.rejects(assertSafeImportUrl('http://example.com/skill.md'), /仅支持 HTTPS/)
+  await assert.rejects(assertSafeImportUrl('https://localhost/skill.md'), /私有网络/)
+  await assert.rejects(assertSafeImportUrl('https://[::1]/skill.md'), /私有网络|保留地址/)
+  await assert.rejects(
+    assertSafeImportUrl('https://internal.example/skill.md', async () => [{ address: '10.0.0.2' }]),
+    /私有网络/,
+  )
+  const publicUrl = await assertSafeImportUrl(
+    'https://skills.example/skill.md',
+    async () => [{ address: '93.184.216.34' }],
+  )
+  assert.equal(publicUrl.hostname, 'skills.example')
   console.log('batch import test: OK')
 } finally {
   rmSync(sandbox, { recursive: true, force: true })
