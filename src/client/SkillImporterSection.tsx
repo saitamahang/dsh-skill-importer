@@ -37,6 +37,31 @@ interface FileDraft {
 
 const MAX_FILE_BYTES = 256 * 1024
 
+function FileIcon(): ReactNode {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M5.25 2.25h4.2l3.3 3.3v9.2a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1V3.25a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      <path d="M9.25 2.5v3.25h3.25M6.75 9h4.5M6.75 11.75h3.25" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function LinkIcon(): ReactNode {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="m7.15 10.85 3.7-3.7M6.05 12.55l-1.1 1.1a2.6 2.6 0 0 1-3.68-3.68l2.3-2.3a2.6 2.6 0 0 1 3.68 0M11.95 5.45l1.1-1.1a2.6 2.6 0 1 1 3.68 3.68l-2.3 2.3a2.6 2.6 0 0 1-3.68 0" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CheckIcon(): ReactNode {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="m3 7.25 2.4 2.4L11 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** Read a picked file's text (browser-local; nothing crosses the wire except the import itself). */
 function readFileText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -217,7 +242,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 720 }}>
       {/* Entry points */}
       <div style={rowStyle}>
         <div style={rowTextStyle}>
@@ -284,51 +309,76 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
       </div>
 
       {/* Import */}
-      <div style={rowStyle}>
+      <div style={{ ...rowStyle, borderBottom: 'none' }}>
         <div style={rowTextStyle}>
           <div style={titleStyle}>{t('importTitle')}</div>
+          <div style={descriptionStyle}>{t('importDescription')}</div>
 
           {/* File / URL mode tabs */}
-          <div role="tablist" style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <div role="tablist" style={entryGridStyle}>
             <button type="button" role="tab" aria-selected={mode === 'file'} onClick={() => setMode('file')}
-              style={segmentStyle(mode === 'file')}>
-              {t('fileTab')}
+              style={entryButtonStyle(mode === 'file')}>
+              <span style={entryIconStyle}><FileIcon /></span>
+              <span style={entryCopyStyle}>
+                <span style={entryTitleStyle}>{t('fileTab')}</span>
+                <span style={entryDescriptionStyle}>{t('fileEntryDescription')}</span>
+              </span>
+              {mode === 'file' ? <span style={entryCheckStyle}><CheckIcon /></span> : null}
             </button>
             <button type="button" role="tab" aria-selected={mode === 'url'} onClick={() => setMode('url')}
-              style={segmentStyle(mode === 'url')}>
-              {t('urlTab')}
+              style={entryButtonStyle(mode === 'url')}>
+              <span style={entryIconStyle}><LinkIcon /></span>
+              <span style={entryCopyStyle}>
+                <span style={entryTitleStyle}>{t('urlTab')}</span>
+                <span style={entryDescriptionStyle}>{t('urlEntryDescription')}</span>
+              </span>
+              {mode === 'url' ? <span style={entryCheckStyle}><CheckIcon /></span> : null}
             </button>
           </div>
 
-          {mode === 'file' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+          <div style={importEditorStyle}>
+            {mode === 'file' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <input
                 ref={fileInput}
                 type="file"
                 accept=".md,.markdown,text/markdown,text/plain"
                 onChange={(event) => { void onFilePicked(event.target.files?.[0]) }}
-                style={{ ...controlStyle, padding: 8 }}
+                style={hiddenInputStyle}
               />
+              <button type="button" onClick={() => fileInput.current?.click()} style={filePickerStyle}>
+                <span style={filePickerIconStyle}><FileIcon /></span>
+                <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+                  <span style={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {fileDraft?.fileName ?? t('chooseFile')}
+                  </span>
+                  <span style={descriptionStyle}>{fileDraft === undefined ? t('filePickerHint') : t('replaceFile')}</span>
+                </span>
+                <span style={secondaryButtonStyle}>{fileDraft === undefined ? t('browse') : t('change')}</span>
+              </button>
               <div style={descriptionStyle}>{t('fileHelp')}</div>
               {fileError !== undefined ? (
                 <div style={{ ...descriptionStyle, color: 'var(--dsw-alias-state-error-primary)' }}>{fileError}</div>
               ) : null}
               {fileDraft !== undefined ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 10, color: 'var(--dsw-alias-label-secondary)' }}>
-                  <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>{t('previewTitle')}</span>
-                  <span>{t('previewName')}: <strong>{fileDraft.name}</strong></span>
-                  <span>{t('previewDescription')}: {fileDraft.description}</span>
+                <div style={previewStyle}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--dsw-alias-state-success-primary)' }}>
+                    <CheckIcon />
+                    <span style={{ fontSize: 12, fontWeight: 500 }}>{t('previewOk')}</span>
+                  </div>
+                  <div style={previewDividerStyle} />
+                  <span><strong style={previewKeyStyle}>{t('previewName')}</strong>{fileDraft.name}</span>
+                  <span><strong style={previewKeyStyle}>{t('previewDescription')}</strong>{fileDraft.description}</span>
                   {fileDraft.whenToUse !== undefined ? (
-                    <span>{t('previewWhenToUse')}: {fileDraft.whenToUse}</span>
+                    <span><strong style={previewKeyStyle}>{t('previewWhenToUse')}</strong>{fileDraft.whenToUse}</span>
                   ) : null}
-                  <span style={{ opacity: 0.8 }}>{fileDraft.fileName} · {t('previewOk')}</span>
                 </div>
               ) : null}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
-                <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>{t('urlLabel')}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>{t('urlLabel')}</span>
                 <input
                   type="url"
                   value={url}
@@ -337,8 +387,8 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                   style={controlStyle}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
-                <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>{t('urlNameLabel')}</span>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>{t('urlNameLabel')}</span>
                 <input
                   type="text"
                   value={urlName}
@@ -352,8 +402,9 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           )}
 
           {/* Target directory */}
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, marginTop: 12 }}>
-            <span style={{ fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>{t('targetLabel')}</span>
+          <div style={editorDividerStyle} />
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>{t('targetLabel')}</span>
             <select
               value={target}
               onChange={(event) => setTarget(event.target.value as ImportTarget)}
@@ -373,15 +424,16 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           </label>
 
           {/* Action */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+          <div style={actionStyle}>
+            {message !== undefined ? (
+              <span style={{ flex: 1, fontSize: 12, lineHeight: '18px', color: messageError ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)', wordBreak: 'break-all' }}>
+                {message}
+              </span>
+            ) : <span style={{ flex: 1 }} />}
             <button type="button" disabled={canSubmit} onClick={() => { void submit() }} style={canSubmit ? primaryDisabledStyle : primaryStyle}>
               {busy ? t('importing') : t('import')}
             </button>
-            {message !== undefined ? (
-              <span style={{ fontSize: 12, color: messageError ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' }}>
-                {message}
-              </span>
-            ) : null}
+          </div>
           </div>
         </div>
       </div>
@@ -434,13 +486,16 @@ const pillStyle: CSSProperties = {
 }
 
 const controlStyle: CSSProperties = {
-  padding: '7px 12px',
+  boxSizing: 'border-box',
+  width: '100%',
+  height: 36,
+  padding: '0 12px',
   borderRadius: 8,
   border: '1px solid var(--dsw-alias-border-l2)',
   background: 'var(--dsw-alias-bg-layer-1)',
   font: 'inherit',
-  fontSize: 14,
-  lineHeight: '22px',
+  fontSize: 13,
+  lineHeight: '20px',
   color: 'var(--dsw-alias-label-primary)',
   outline: 'none',
 }
@@ -458,16 +513,111 @@ const selectStyle: CSSProperties = {
   cursor: 'pointer',
 }
 
-const segmentStyle = (active: boolean): CSSProperties => ({
-  padding: '4px 14px',
-  borderRadius: 14,
-  border: '1px solid var(--dsw-alias-border-l2)',
+const entryGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+  marginTop: 12,
+}
+
+const entryButtonStyle = (active: boolean): CSSProperties => ({
+  boxSizing: 'border-box',
+  position: 'relative',
+  minWidth: 0,
+  minHeight: 68,
+  padding: '11px 12px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  border: `1px ${active ? 'solid' : 'dashed'} ${active ? 'var(--dsw-alias-border-l3)' : 'var(--dsw-alias-border-l2)'}`,
+  borderRadius: 12,
   background: active ? 'var(--dsw-alias-bg-module-platform)' : 'transparent',
   color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
   font: 'inherit',
-  fontSize: 13,
   cursor: 'pointer',
+  textAlign: 'left',
 })
+
+const entryIconStyle: CSSProperties = {
+  flex: 'none',
+  width: 34,
+  height: 34,
+  borderRadius: 10,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'var(--dsw-alias-interactive-bg-hover)',
+  color: 'var(--dsw-alias-label-secondary)',
+}
+
+const entryCopyStyle: CSSProperties = { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }
+const entryTitleStyle: CSSProperties = { fontSize: 13, lineHeight: '20px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)' }
+const entryDescriptionStyle: CSSProperties = { fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }
+const entryCheckStyle: CSSProperties = { position: 'absolute', top: 8, right: 8, color: 'var(--dsw-alias-state-success-primary)' }
+
+const importEditorStyle: CSSProperties = {
+  marginTop: 10,
+  padding: '14px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  borderRadius: 12,
+  background: 'var(--dsw-alias-bg-module-platform)',
+}
+
+const hiddenInputStyle: CSSProperties = { display: 'none' }
+
+const filePickerStyle: CSSProperties = {
+  boxSizing: 'border-box',
+  width: '100%',
+  minHeight: 62,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '9px 10px',
+  border: '1px dashed var(--dsw-alias-border-l3)',
+  borderRadius: 10,
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-secondary)',
+  font: 'inherit',
+  cursor: 'pointer',
+}
+
+const filePickerIconStyle: CSSProperties = { ...entryIconStyle, width: 36, height: 36 }
+
+const secondaryButtonStyle: CSSProperties = {
+  flex: 'none',
+  boxSizing: 'border-box',
+  height: 28,
+  padding: '0 10px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 14,
+  color: 'var(--dsw-alias-label-primary)',
+  fontSize: 12,
+  lineHeight: '18px',
+}
+
+const previewStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  padding: '10px 12px',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 10,
+  background: 'var(--dsw-alias-bg-layer-1)',
+  color: 'var(--dsw-alias-label-secondary)',
+  fontSize: 12,
+  lineHeight: '18px',
+}
+
+const previewDividerStyle: CSSProperties = { height: 1, margin: '2px 0', background: 'var(--dsw-alias-border-l2)' }
+const previewKeyStyle: CSSProperties = { display: 'inline-block', minWidth: 70, marginRight: 8, color: 'var(--dsw-alias-label-tertiary)', fontWeight: 500 }
+const editorDividerStyle: CSSProperties = { height: 1, background: 'var(--dsw-alias-border-l2)' }
+const fieldStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }
+const fieldLabelStyle: CSSProperties = { fontSize: 12, lineHeight: '18px', fontWeight: 500, color: 'var(--dsw-alias-label-secondary)' }
+const actionStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }
 
 const primaryStyle: CSSProperties = {
   display: 'inline-flex',
