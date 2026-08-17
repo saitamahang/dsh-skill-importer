@@ -13,6 +13,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import type {
   InjectFace, PropsLocale, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseSkillFile, validateSkillFile } from '../frontmatter.ts'
 import type {
   BatchCommitEntry, BatchScanResponse, DeleteRequest, ImportTarget, SkillListEntry,
@@ -151,6 +152,12 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [batchScan, setBatchScan] = useState<BatchScanResponse>()
   const [batchResults, setBatchResults] = useState<readonly BatchCommitEntry[]>()
   const [replaceNames, setReplaceNames] = useState<ReadonlySet<string>>(() => new Set())
+  const [pendingDelete, setPendingDelete] = useState<SkillListEntry>()
+  const [batchConfirmation, setBatchConfirmation] = useState<{
+    readonly importing: number
+    readonly replacing: number
+    readonly skipped: number
+  }>()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const onFilePicked = async (file: File | undefined): Promise<void> => {
@@ -202,9 +209,9 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     }, 2000)
   }
 
-  const removeSkill = async (skill: SkillListEntry): Promise<void> => {
-    const ok = window.confirm(t('deleteConfirm', { name: skill.name }))
-    if (!ok) return
+  const removeSkill = async (): Promise<void> => {
+    if (pendingDelete === undefined) return
+    const skill = pendingDelete
     setBusy(true)
     setMessage(undefined)
     setMessageError(false)
@@ -214,7 +221,10 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
         source: skill.source,
         workspacePath: workspace?.path,
       } satisfies DeleteRequest)
-      if (removed) setMessage(t('deleted'))
+      if (removed) {
+        setMessage(t('deleted'))
+        setPendingDelete(undefined)
+      }
       setListEpoch((epoch) => epoch + 1)
     } catch (error) {
       setMessageError(true)
@@ -313,13 +323,17 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     }
   }
 
-  const commitBatchDirectory = async (): Promise<void> => {
+  const requestBatchCommit = (): void => {
     if (batchScan === undefined) return
     const ready = batchScan.entries.filter((entry) => entry.status === 'ready')
     const replacing = ready.filter((entry) => replaceNames.has(entry.name)).length
     const importing = ready.filter((entry) => !entry.conflict).length
     const skipped = ready.filter((entry) => entry.conflict && !replaceNames.has(entry.name)).length
-    if (!window.confirm(t('batchConfirm', { importing, replacing, skipped }))) return
+    setBatchConfirmation({ importing, replacing, skipped })
+  }
+
+  const commitBatchDirectory = async (): Promise<void> => {
+    if (batchScan === undefined || batchConfirmation === undefined) return
     setBusy(true)
     setMessage(undefined)
     setMessageError(false)
@@ -328,6 +342,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
       setBatchResults(result.results)
       setBatchScan(undefined)
       setReplaceNames(new Set())
+      setBatchConfirmation(undefined)
       setListEpoch((epoch) => epoch + 1)
     } catch (error) {
       setMessageError(true)
@@ -362,7 +377,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
       return
     }
     if (batchScan === undefined) void scanBatchDirectory()
-    else void commitBatchDirectory()
+    else requestBatchCommit()
   }
 
   const primaryLabel = mode !== 'batch'
@@ -452,7 +467,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                             type="button"
                             aria-label={`${t('delete')} ${skill.name}`}
                             title={t('delete')}
-                            onClick={() => { void removeSkill(skill) }}
+                            onClick={() => setPendingDelete(skill)}
                             style={deleteIconButtonStyle}
                           >
                             <TrashIcon />
@@ -673,6 +688,36 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           </div>
         </div>
       </div>
+      <Modal
+        open={pendingDelete !== undefined}
+        onClose={() => { if (!busy) setPendingDelete(undefined) }}
+        title={t('deleteTitle')}
+        closeLabel={t('close')}
+        description={pendingDelete === undefined ? undefined : t('deleteConfirm', { name: pendingDelete.name })}
+        footer={(
+          <>
+            <Button variant="outline" disabled={busy} onClick={() => setPendingDelete(undefined)}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={busy} onClick={() => { void removeSkill() }}>
+              {busy ? t('deleting') : t('delete')}
+            </Button>
+          </>
+        )}
+      />
+      <Modal
+        open={batchConfirmation !== undefined}
+        onClose={() => { if (!busy) setBatchConfirmation(undefined) }}
+        title={t('batchConfirmTitle')}
+        closeLabel={t('close')}
+        description={batchConfirmation === undefined ? undefined : t('batchConfirm', batchConfirmation)}
+        footer={(
+          <>
+            <Button variant="outline" disabled={busy} onClick={() => setBatchConfirmation(undefined)}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={busy} onClick={() => { void commitBatchDirectory() }}>
+              {busy ? t('batchWorking') : t('batchCommit')}
+            </Button>
+          </>
+        )}
+      />
     </div>
   )
 }
