@@ -104,24 +104,31 @@ function readFileText(file: File): Promise<string> {
 }
 
 /** The settings section's page body. */
-export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: SkillImporterProps): ReactNode {
+export function SkillImporterSection({ t, useSkills, useSkillIssues, useWorkspaces, actions }: SkillImporterProps): ReactNode {
   const skills = useSkills((value) => value)
+  const skillIssues = useSkillIssues((value) => value)
   const workspaces = useWorkspaces((value) => value)
 
-  // The "current workspace": the most recently active one, else the first
-  // registered. Project targets write under its canonical path (host-validated).
-  const workspace = useMemo(
-    () => workspaces.items.find((item) => item.workspaceId === workspaces.recentWorkspaceId) ?? workspaces.items[0],
-    [workspaces.items, workspaces.recentWorkspaceId],
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(
+    () => workspaces.recentWorkspaceId ?? workspaces.items[0]?.workspaceId,
   )
+  useEffect(() => {
+    if (selectedWorkspaceId !== undefined
+      && workspaces.items.some((item) => item.workspaceId === selectedWorkspaceId)) return
+    setSelectedWorkspaceId(workspaces.recentWorkspaceId ?? workspaces.items[0]?.workspaceId)
+  }, [selectedWorkspaceId, workspaces.items, workspaces.recentWorkspaceId])
 
+  // Project targets use the explicit settings-page selection. The initial
+  // value follows DSH's recent workspace, but user choice is not overwritten.
+  const workspace = useMemo(
+    () => workspaces.items.find((item) => item.workspaceId === selectedWorkspaceId),
+    [selectedWorkspaceId, workspaces.items],
+  )
   // List lifecycle: refresh on mount and on demand.
   const [listState, setListState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [listError, setListError] = useState<string>()
   const [listEpoch, setListEpoch] = useState(0)
-  const [collapsedSources, setCollapsedSources] = useState<ReadonlySet<ImportTarget>>(
-    () => new Set<ImportTarget>(['project-agents', 'user']),
-  )
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     let cancelled = false
     setListState('loading')
@@ -143,7 +150,10 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
 
   // Import form state.
   const [mode, setMode] = useState<'file' | 'url' | 'batch'>('file')
-  const [target, setTarget] = useState<ImportTarget>('project-agents')
+  const [target, setTarget] = useState<ImportTarget>('project-dsh')
+  useEffect(() => {
+    if (workspaces.items.length === 0 && target.startsWith('project-')) setTarget('user-dsh')
+  }, [target, workspaces.items.length])
   const [fileDraft, setFileDraft] = useState<FileDraft | undefined>()
   const [fileError, setFileError] = useState<string>()
   const [url, setUrl] = useState('')
@@ -156,6 +166,10 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
   const [batchResults, setBatchResults] = useState<readonly BatchCommitEntry[]>()
   const [replaceNames, setReplaceNames] = useState<ReadonlySet<string>>(() => new Set())
   const [pendingDelete, setPendingDelete] = useState<SkillListEntry>()
+  const [locationOpen, setLocationOpen] = useState(false)
+  const [workspaceQuery, setWorkspaceQuery] = useState('')
+  const [draftTarget, setDraftTarget] = useState<ImportTarget>('project-dsh')
+  const [draftWorkspaceId, setDraftWorkspaceId] = useState<string>()
   const [updateState, setUpdateState] = useState<'checking' | 'ready' | 'error'>('checking')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse>()
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
@@ -258,7 +272,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
       const removed = await actions.deleteSkill({
         name: skill.name,
         source: skill.source,
-        workspacePath: workspace?.path,
+        workspacePath: skill.workspacePath,
       } satisfies DeleteRequest)
       if (removed) {
         setMessage(t('deleted'))
@@ -404,11 +418,30 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     if (mode === 'batch') resetBatchPreflight()
   }
 
+  const chooseDestination = (nextTarget: ImportTarget, nextWorkspaceId?: string): void => {
+    if (nextWorkspaceId !== undefined) setSelectedWorkspaceId(nextWorkspaceId)
+    changeTarget(nextTarget)
+    setLocationOpen(false)
+  }
+
+  const locationSummary = target === 'project-dsh'
+    ? t('locationSummaryProjectDsh', { title: workspace?.title ?? '' })
+    : target === 'project-agents'
+      ? t('locationSummaryProjectAgents', { title: workspace?.title ?? '' })
+      : target === 'user-dsh'
+        ? t('locationSummaryUserDsh')
+        : t('locationSummaryUserAgents')
+
+  const filteredWorkspaces = workspaces.items.filter((item) => {
+    const query = workspaceQuery.trim().toLowerCase()
+    return query.length === 0 || item.title.toLowerCase().includes(query) || item.path.toLowerCase().includes(query)
+  })
+
   const canSubmit = busy
     || (mode === 'file' && fileDraft === undefined)
     || (mode === 'url' && (url.trim().length === 0 || !/^https?:\/\//i.test(url.trim())))
     || (mode === 'batch' && batchPath === undefined)
-    || (target !== 'user' && workspace === undefined)
+    || (target.startsWith('project-') && workspace === undefined)
 
   const runPrimaryAction = (): void => {
     if (mode !== 'batch') {
@@ -429,13 +462,26 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
     return undefined
   }
 
-  const toggleSource = (source: ImportTarget): void => {
-    setCollapsedSources((current) => {
+  const toggleGroup = (groupKey: string): void => {
+    setExpandedGroups((current) => {
       const next = new Set(current)
-      if (!next.delete(source)) next.add(source)
+      if (!next.delete(groupKey)) next.add(groupKey)
       return next
     })
   }
+
+  const skillGroups = [
+    ...workspaces.items.flatMap((item) => (['project-dsh', 'project-agents'] as const).map((source) => ({
+      key: `${item.workspaceId}:${source}`,
+      source,
+      workspacePath: item.path,
+      name: source === 'project-dsh'
+        ? t('targetProjectDsh', { title: item.title })
+        : t('targetProjectAgents', { title: item.title }),
+    }))),
+    { key: 'user-dsh', source: 'user-dsh' as const, workspacePath: undefined, name: t('targetUserDsh') },
+    { key: 'user-agents', source: 'user-agents' as const, workspacePath: undefined, name: t('targetUserAgents') },
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 720 }}>
@@ -460,31 +506,32 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
             {t('installedFailed')}: {listError}
           </div>
         ) : null}
+        {listState !== 'error' && skillIssues.length > 0 ? (
+          <div style={{ ...descriptionStyle, color: 'var(--dsw-alias-state-warn-label)' }}>
+            {t('installedPartial', { count: skillIssues.length })} {skillIssues[0]?.message}
+          </div>
+        ) : null}
         {listState === 'idle' && skills.length === 0 ? (
           <div style={descriptionStyle}>{t('installedEmpty')}</div>
         ) : null}
         {skills.length > 0 ? (
           <div style={skillGroupsStyle}>
-            {(['project-agents', 'user'] as const).map((source) => {
-              const rows = skills.filter((skill) => skill.source === source)
+            {skillGroups.map((group) => {
+              const rows = skills.filter((skill) => skill.source === group.source
+                && (!group.source.startsWith('project-') || skill.workspacePath === group.workspacePath))
               if (rows.length === 0) return null
-              const sourceName = source === 'user'
-                ? t('targetUser')
-                : workspace === undefined
-                  ? t('targetProjectNoWorkspace')
-                  : t('targetProjectAgents', { title: workspace.title })
-              const open = !collapsedSources.has(source)
+              const open = expandedGroups.has(group.key)
               return (
-                <section key={source} style={skillGroupCardStyle}>
+                <section key={group.key} style={skillGroupCardStyle}>
                   <button
                     type="button"
                     aria-expanded={open}
-                    onClick={() => toggleSource(source)}
+                    onClick={() => toggleGroup(group.key)}
                     style={{ ...skillGroupHeaderStyle, borderBottom: open ? skillGroupHeaderStyle.borderBottom : 'none' }}
                   >
                     <span style={skillGroupChevronStyle}><ChevronIcon open={open} /></span>
                     <div style={skillGroupIdentityStyle}>
-                      <span style={skillGroupNameStyle}>{sourceName}</span>
+                      <span style={skillGroupNameStyle}>{group.name}</span>
                     </div>
                     <span style={countBadgeStyle}>{rows.length}</span>
                   </button>
@@ -492,7 +539,7 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
                     {rows.map((skill, index) => {
                       const flag = flags(skill)
                       return (
-                        <li key={skill.source + ':' + skill.name}
+                        <li key={skill.source + ':' + (skill.workspacePath ?? '') + ':' + skill.name}
                           style={{ ...skillRowStyle, borderBottom: index === rows.length - 1 ? 'none' : skillRowStyle.borderBottom }}>
                           <span style={skillAvatarStyle} aria-hidden="true">{skill.name.charAt(0).toUpperCase()}</span>
                           <div style={skillContentStyle}>
@@ -698,16 +745,10 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           <div style={editorDividerStyle} />
           <label style={fieldStyle}>
             <span style={fieldLabelStyle}>{t('targetLabel')}</span>
-            <select
-              value={target}
-              onChange={(event) => changeTarget(event.target.value as ImportTarget)}
-              style={selectStyle}
-            >
-              <option value="project-agents" disabled={workspace === undefined}>
-                {workspace === undefined ? t('targetProjectNoWorkspace') : t('targetProjectAgents', { title: workspace.title })}
-              </option>
-              <option value="user">{t('targetUser')}</option>
-            </select>
+            <button type="button" onClick={() => { setWorkspaceQuery(''); setDraftTarget(target); setDraftWorkspaceId(selectedWorkspaceId); setLocationOpen(true) }} style={locationSummaryStyle}>
+              <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{locationSummary}</span>
+              <span style={secondaryButtonStyle}>{t('locationChange')}</span>
+            </button>
             {workspace === undefined ? (
               <span style={descriptionStyle}>{t('noWorkspace')}</span>
             ) : null}
@@ -752,6 +793,75 @@ export function SkillImporterSection({ t, useSkills, useWorkspaces, actions }: S
           </button>
         ) : null}
       </div>
+      <Modal
+        open={locationOpen}
+        onClose={() => setLocationOpen(false)}
+        title={t('locationTitle')}
+        closeLabel={t('close')}
+        footer={<Button variant="outline" onClick={() => setLocationOpen(false)}>{t('cancel')}</Button>}
+      >
+        <div style={locationPanelStyle}>
+          <div style={locationScopeStyle}>
+            <button type="button" onClick={() => { if (!draftTarget.startsWith('project-')) setDraftTarget('project-dsh') }} style={{ ...locationScopeButtonStyle, ...(draftTarget.startsWith('project-') ? locationScopeButtonActiveStyle : {}) }}>{t('locationProject')}</button>
+            <button type="button" onClick={() => { if (draftTarget.startsWith('project-')) setDraftTarget('user-dsh') }} style={{ ...locationScopeButtonStyle, ...(!draftTarget.startsWith('project-') ? locationScopeButtonActiveStyle : {}) }}>{t('locationGlobal')}</button>
+          </div>
+          {draftTarget.startsWith('project-') ? (
+            <>
+              <input type="search" value={workspaceQuery} onChange={(event) => setWorkspaceQuery(event.target.value)} placeholder={t('workspaceSearch')} style={controlStyle} />
+              <div style={locationWorkspaceListStyle}>
+                {filteredWorkspaces.map((item) => {
+                  const selected = item.workspaceId === draftWorkspaceId
+                  return (
+                    <div key={item.workspaceId} style={{ ...locationWorkspaceGroupStyle, ...(selected ? locationWorkspaceActiveStyle : {}) }}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          const group = event.currentTarget.parentElement
+                          setDraftWorkspaceId(selected ? undefined : item.workspaceId)
+                          if (!selected) window.requestAnimationFrame(() => group?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+                        }}
+                        style={locationWorkspaceStyle}
+                        aria-expanded={selected}
+                      >
+                        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span style={skillNameStyle}>{item.title}</span>
+                          <span style={skillDescriptionStyle}>{item.path}</span>
+                        </span>
+                        <span style={skillGroupChevronStyle}><ChevronIcon open={selected} /></span>
+                      </button>
+                      {selected ? (
+                        <div style={locationExpandedRootsStyle}>
+                          <span style={locationRootHintStyle}>{t('chooseRootHint')}</span>
+                          <button type="button" onClick={() => chooseDestination('project-dsh', item.workspaceId)} style={locationOptionStyle}>
+                            <span style={locationOptionCopyStyle}><strong>{t('rootProjectDsh')}</strong><small style={descriptionStyle}>.dsh/skills</small></span>
+                            <span style={priorityHighStyle}>{t('priorityHighest')}</span>
+                          </button>
+                          <button type="button" onClick={() => chooseDestination('project-agents', item.workspaceId)} style={locationOptionStyle}>
+                            <span style={locationOptionCopyStyle}><strong>{t('rootProjectAgents')}</strong><small style={descriptionStyle}>.agents/skills</small></span>
+                            <span style={priorityMediumStyle}>{t('priorityHigher')}</span>
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+                {filteredWorkspaces.length === 0 ? <div style={descriptionStyle}>{t('workspaceNoMatch')}</div> : null}
+              </div>
+            </>
+          ) : (
+            <div style={locationRootsStyle}>
+              <button type="button" onClick={() => chooseDestination('user-dsh')} style={locationOptionStyle}>
+                <span style={locationOptionCopyStyle}><strong>{t('rootUserDsh')}</strong><small style={descriptionStyle}>~/.dsh/skills</small></span>
+                <span style={priorityLowStyle}>{t('priorityLower')}</span>
+              </button>
+              <button type="button" onClick={() => chooseDestination('user-agents')} style={locationOptionStyle}>
+                <span style={locationOptionCopyStyle}><strong>{t('rootUserAgents')}</strong><small style={descriptionStyle}>~/.agents/skills</small></span>
+                <span style={priorityLowStyle}>{t('priorityLowest')}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </Modal>
       <Modal
         open={pendingDelete !== undefined}
         onClose={() => { if (!busy) setPendingDelete(undefined) }}
@@ -1156,6 +1266,38 @@ const secondaryButtonStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: '18px',
 }
+
+const locationSummaryStyle: CSSProperties = {
+  ...controlStyle,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  cursor: 'pointer',
+}
+const locationPanelStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }
+const locationScopeStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, padding: 4, borderRadius: 10, background: 'var(--dsw-alias-bg-module-platform)' }
+const locationScopeButtonStyle: CSSProperties = { border: 'none', borderRadius: 7, padding: '8px 12px', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontWeight: 500 }
+const locationScopeButtonActiveStyle: CSSProperties = { background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }
+const locationWorkspaceListStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  maxHeight: 'min(440px, 52vh)',
+  overflowY: 'auto',
+  scrollPadding: '8px 0',
+}
+const locationWorkspaceGroupStyle: CSSProperties = { overflow: 'hidden', borderRadius: 10, transition: 'background 140ms ease' }
+const locationWorkspaceStyle: CSSProperties = { width: '100%', display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 8, padding: '9px 10px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }
+const locationWorkspaceActiveStyle: CSSProperties = { background: 'var(--dsw-alias-bg-module-platform)' }
+const locationExpandedRootsStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8, padding: '2px 10px 10px 18px' }
+const locationRootHintStyle: CSSProperties = { fontSize: 11, lineHeight: '16px', fontWeight: 500, color: 'var(--dsw-alias-label-tertiary)' }
+const locationRootsStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 }
+const locationOptionStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: '10px 12px', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', textAlign: 'left' }
+const locationOptionCopyStyle: CSSProperties = { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }
+const priorityBaseStyle: CSSProperties = { flex: 'none', borderRadius: 999, padding: '2px 7px', fontSize: 11, lineHeight: '16px', fontWeight: 600 }
+const priorityHighStyle: CSSProperties = { ...priorityBaseStyle, color: 'var(--dsw-alias-state-success-primary)', background: 'var(--dsw-alias-bg-module-platform)' }
+const priorityMediumStyle: CSSProperties = { ...priorityBaseStyle, color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-module-platform)' }
+const priorityLowStyle: CSSProperties = { ...priorityBaseStyle, color: 'var(--dsw-alias-label-secondary)', background: 'var(--dsw-alias-bg-module-platform)' }
 
 const previewStyle: CSSProperties = {
   display: 'flex',

@@ -43,7 +43,7 @@ try {
   mkdirSync(existing, { recursive: true })
   writeFileSync(join(existing, 'SKILL.md'), skill('alpha', 'old'))
 
-  const scan = scanBatch({ sourcePath: source, target: 'user' })
+  const scan = scanBatch({ sourcePath: source, target: 'user-dsh' })
   assert.equal(scan.entries.find(row => row.name === 'alpha')?.conflict, true)
   assert.equal(scan.entries.find(row => row.name === 'windows-crlf')?.status, 'ready')
   assert.equal(scan.entries.find(row => row.name === 'invalid')?.status, 'error')
@@ -63,7 +63,7 @@ try {
   const changedSource = join(sandbox, '.codex', 'skills')
   mkdirSync(join(changedSource, 'beta'), { recursive: true })
   writeFileSync(join(changedSource, 'beta', 'SKILL.md'), skill('beta'))
-  const changedScan = scanBatch({ sourcePath: changedSource, target: 'user' })
+  const changedScan = scanBatch({ sourcePath: changedSource, target: 'user-dsh' })
   writeFileSync(join(changedSource, 'beta', 'SKILL.md'), skill('beta', 'changed after scan'))
   const changedResults = commitBatch(changedScan, new Set())
   assert.equal(changedResults[0]?.status, 'error')
@@ -74,15 +74,15 @@ try {
   const customAgentSource = join(sandbox, 've_hcs_agent', 'skills')
   mkdirSync(join(customAgentSource, 'gamma'), { recursive: true })
   writeFileSync(join(customAgentSource, 'gamma', 'SKILL.md'), skill('gamma'))
-  assert.equal(scanBatch({ sourcePath: customAgentSource, target: 'user' }).entries[0]?.name, 'gamma')
+  assert.equal(scanBatch({ sourcePath: customAgentSource, target: 'user-dsh' }).entries[0]?.name, 'gamma')
 
   const empty = join(sandbox, '.agents', 'skills')
   mkdirSync(empty, { recursive: true })
-  assert.throws(() => scanBatch({ sourcePath: empty, target: 'user' }), /没有找到/)
+  assert.throws(() => scanBatch({ sourcePath: empty, target: 'user-dsh' }), /没有找到/)
 
   const arbitrary = join(sandbox, 'arbitrary')
   mkdirSync(arbitrary)
-  assert.throws(() => scanBatch({ sourcePath: arbitrary, target: 'user' }), /名为 skills/)
+  assert.throws(() => scanBatch({ sourcePath: arbitrary, target: 'user-dsh' }), /名为 skills/)
 
   assert.equal(originAllowed({ headers: {} }), false)
   assert.equal(originAllowed({ headers: { origin: 'https://evil.example' } }), false)

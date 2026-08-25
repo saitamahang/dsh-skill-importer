@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { CommandUiContract } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
@@ -28,6 +28,7 @@ import { SkillImporterSection } from './SkillImporterSection.tsx'
 import type { SkillImporterProps } from './SkillImporterSection.tsx'
 import { SkillsPicker } from './SkillsPicker.tsx'
 import type { SkillsPickerProps } from './SkillsPicker.tsx'
+import { effectiveSkills } from './effectiveSkills.ts'
 import { requestComposerFocus } from './composerFocus.ts'
 import { en, NS, zh, type SkillImporterKey } from './locales.ts'
 import type {
@@ -43,18 +44,23 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Installed skill catalog snapshot (global — not per-session anymore). */
+/** Installed skill catalog snapshot used by the all-workspace settings view. */
 export type SkillCatalogSnapshot = SkillListResponse["skills"]
+export type SkillIssueSnapshot = SkillListResponse["issues"]
 
 /** Registration-side business face for the section. */
 export interface SkillImporterInjected {
   hooks: {
     /** Last successful `/skill-importer/list` result. */
     skills: HostObservable<SkillCatalogSnapshot>
+    /** Non-fatal filesystem failures from the last catalog refresh. */
+    skillIssues: HostObservable<SkillIssueSnapshot>
   }
   actions: {
     /** Re-fetch the installed catalog; resolves to the fresh rows. */
-    refreshSkills: () => Promise<SkillCatalogSnapshot>
+    refreshSkills: (workspacePath?: string) => Promise<SkillCatalogSnapshot>
+    /** Load the effective catalog for one conversation without mutating the settings catalog. */
+    refreshSkillsForSession: (sessionId: SessionId) => Promise<SkillCatalogSnapshot>
     /** Write one skill file via the host route; resolves to the written path. */
     importSkill: (request: ImportRequest) => Promise<string>
     /** Fetch a URL and write the skill via the host route; resolves to the written path. */
@@ -120,11 +126,18 @@ async function call<T extends { ok: boolean }>(path: string, body?: unknown): Pr
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-skill-importer: dictionaries')
   const t = ctx.locale.bind(NS)
+  const sourceLabel = (source: SkillCatalogSnapshot[number]['source']): string =>
+    source === 'project-dsh' ? t('pickerSourceProjectDsh')
+      : source === 'project-agents' ? t('pickerSourceProjectAgents')
+        : source === 'user-dsh' ? t('pickerSourceUserDsh')
+          : t('pickerSourceUserAgents')
 
   // Plugin-closure state: last-good catalog plus its listeners. The array is
   // replaced immutably on refresh so getSnapshot stays stable between
   // refreshes (the inject hooks contract).
   let catalog: SkillCatalogSnapshot = []
+  let issues: SkillIssueSnapshot = []
+  const sessionCatalogs = new Map<SessionId, SkillCatalogSnapshot>()
   const listeners = new Set<() => void>()
   const notify = (): void => {
     for (const listener of [...listeners]) {
@@ -156,7 +169,9 @@ export function apply(ctx: ClientContext): void {
   // candidates always reject — a failed candidates call drops the menu group
   // silently (never a visible empty row), while its lexicon roll still feeds
   // the composer's `/name` text-ref decoration, matching native typing.
-  const usableNames = (): string[] => catalog.filter((skill) => skill.userInvocable).map((skill) => skill.name)
+  const usableNames = (): string[] => [...new Set(
+    [...sessionCatalogs.values()].flat().filter((skill) => skill.userInvocable).map((skill) => skill.name),
+  )]
   ctx.effect(() => {
     const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
     const unregister = inputTriggers.registerSource({
@@ -201,12 +216,11 @@ export function apply(ctx: ClientContext): void {
         available: () => true,
         ui: {
           kind: 'popupSelect',
-          async options(_session, _signal) {
-            // No `detail`: the popupSelect shell's local search filters over
-            // label AND detail, and the user wants name-only matching.
-            return catalog
+          async options(session, _signal) {
+            const rows = await refreshSkillsForSession(session.sessionId)
+            return rows
               .filter((skill) => skill.userInvocable)
-              .map((skill) => ({ id: skill.name, label: skill.name }))
+              .map((skill) => ({ id: skill.name, label: `${skill.name} · ${sourceLabel(skill.source)}` }))
           },
           onSelect(option, session) {
             const actx = sessions.scope(session.sessionId)
@@ -233,11 +247,27 @@ export function apply(ctx: ClientContext): void {
     }, 'dsh-skill-importer: /skills popupSelect command')
   }
 
-  const refreshSkills = async (): Promise<SkillCatalogSnapshot> => {
-    const result = await call<SkillListResponse>(ROUTES.list)
+  const refreshSkills = async (workspacePath?: string): Promise<SkillCatalogSnapshot> => {
+    const path = workspacePath === undefined
+      ? ROUTES.list
+      : `${ROUTES.list}?workspacePath=${encodeURIComponent(workspacePath)}`
+    const result = await call<SkillListResponse>(path)
     catalog = result.skills
+    issues = result.issues
     notify()
     return catalog
+  }
+
+  const refreshSkillsForSession = async (sessionId: SessionId): Promise<SkillCatalogSnapshot> => {
+    const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+    const path = cwd === undefined
+      ? `${ROUTES.list}?scope=global`
+      : `${ROUTES.list}?workspacePath=${encodeURIComponent(cwd)}`
+    const result = await call<SkillListResponse>(path)
+    const effective = effectiveSkills(result.skills)
+    sessionCatalogs.set(sessionId, effective)
+    notify()
+    return effective
   }
 
   const importSkill = async (request: ImportRequest): Promise<string> => {
@@ -281,9 +311,17 @@ export function apply(ctx: ClientContext): void {
           }
         },
       },
+      skillIssues: {
+        getSnapshot: () => issues,
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
+      },
     },
     actions: {
       refreshSkills,
+      refreshSkillsForSession,
       importSkill,
       importUrl,
       deleteSkill,

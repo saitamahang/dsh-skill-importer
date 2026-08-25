@@ -18,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isValidSkillName, parseSkillFile } from './frontmatter.ts'
 import type {
   BatchCommitEntry, BatchScanEntry, BatchScanRequest,
-  ImportRequest, ImportTarget, ImportUrlRequest, SkillListEntry,
+  ImportRequest, ImportTarget, ImportUrlRequest, SkillListEntry, SkillListIssue,
 } from './types.ts'
 
 /** Hard cap for one imported skill body (matches the client preview limit). */
@@ -44,18 +44,31 @@ export function dshHomeDir(): string {
 /** Absolute skill root for one target under one workspace. */
 export function skillRoot(target: ImportTarget, workspacePath: string): string {
   switch (target) {
-    case 'user':
-      return join(dshHomeDir(), 'skills')
+    case 'project-dsh':
+      return join(workspacePath, '.dsh', 'skills')
     case 'project-agents':
       return join(workspacePath, '.agents', 'skills')
+    case 'user-dsh':
+      return join(dshHomeDir(), 'skills')
+    case 'user-agents':
+      return join(process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills')
   }
 }
 
 /** Discovery rank per root (lower wins), mirroring dsh-skill-filesystem. */
-const ROOT_RANK: Record<ImportTarget, number> = { 'project-agents': 200, user: 400 }
+const ROOT_RANK: Record<ImportTarget, number> = {
+  'project-dsh': 100,
+  'project-agents': 200,
+  'user-dsh': 400,
+  'user-agents': 500,
+}
 
-/** Scan order: project roots first so project skills win duplicate names. */
-const SCAN_ORDER: readonly ImportTarget[] = ['project-agents', 'user']
+/** Official default-root order (custom rank 300 is not a stable import destination). */
+const SCAN_ORDER: readonly ImportTarget[] = ['project-dsh', 'project-agents', 'user-dsh', 'user-agents']
+
+export function isProjectTarget(target: ImportTarget): boolean {
+  return target === 'project-dsh' || target === 'project-agents'
+}
 
 /**
  * Quote one frontmatter string value when plain YAML would mis-parse it:
@@ -113,7 +126,7 @@ export function normalizeSkillText(text: string): string {
 export function writeSkillFile(name: string, target: ImportTarget, content: string, workspacePath?: string): string {
   if (!KEBAB_CASE.test(name)) throw new Error('技能名必须是 kebab-case（小写字母、数字、短横线）')
   if (Buffer.byteLength(content, 'utf8') > MAX_CONTENT_BYTES) throw new Error(`内容超过 ${MAX_CONTENT_BYTES / 1024} KB`)
-  if (target !== 'user' && workspacePath === undefined) {
+  if (isProjectTarget(target) && workspacePath === undefined) {
     throw new Error('项目目标需要 workspacePath（当前工作区路径）')
   }
   const normalized = normalizeSkillText(content)
@@ -127,30 +140,55 @@ export function writeSkillFile(name: string, target: ImportTarget, content: stri
 }
 
 /** Scan one skill root and fold its skills into the name-keyed map (rank-aware). */
-function scanRoot(root: string, source: ImportTarget, out: Map<string, SkillListEntry>): void {
-  if (!existsSync(root)) return
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const entryPath = join(root, entry.name)
-    let file: string | undefined
-    if (entry.isDirectory()) {
-      const candidate = join(entryPath, 'SKILL.md')
-      if (existsSync(candidate)) file = candidate
-    } else if (entry.isFile() && entry.name.endsWith('.md')) {
-      file = entryPath
+function scanRoot(
+  root: string,
+  source: ImportTarget,
+  workspacePath: string | undefined,
+  out: Map<string, SkillListEntry>,
+  issues: SkillListIssue[],
+): void {
+  try {
+    if (!existsSync(root)) return
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      const entryPath = join(root, entry.name)
+      let file: string | undefined
+      if (entry.isDirectory()) {
+        const candidate = join(entryPath, 'SKILL.md')
+        if (existsSync(candidate)) file = candidate
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        file = entryPath
+      }
+      if (file === undefined) continue
+      try {
+        const { frontmatter } = parseSkillFile(readFileSync(file, 'utf8'))
+        if (frontmatter.name === undefined || frontmatter.description === undefined) continue
+        if (!isValidSkillName(frontmatter.name)) continue
+        const existing = out.get(frontmatter.name)
+        if (existing !== undefined && ROOT_RANK[existing.source] <= ROOT_RANK[source]) continue
+        out.set(frontmatter.name, {
+          name: frontmatter.name,
+          description: frontmatter.description,
+          ...(frontmatter.whenToUse !== undefined ? { whenToUse: frontmatter.whenToUse } : {}),
+          modelInvocable: frontmatter.disableModelInvocation !== true,
+          userInvocable: frontmatter.userInvocable !== false,
+          source,
+          ...(workspacePath === undefined ? {} : { workspacePath }),
+        })
+      } catch (error) {
+        issues.push({
+          source,
+          path: file,
+          ...(workspacePath === undefined ? {} : { workspacePath }),
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
-    if (file === undefined) continue
-    const { frontmatter } = parseSkillFile(readFileSync(file, 'utf8'))
-    if (frontmatter.name === undefined || frontmatter.description === undefined) continue
-    if (!isValidSkillName(frontmatter.name)) continue
-    const existing = out.get(frontmatter.name)
-    if (existing !== undefined && ROOT_RANK[existing.source] <= ROOT_RANK[source]) continue
-    out.set(frontmatter.name, {
-      name: frontmatter.name,
-      description: frontmatter.description,
-      ...(frontmatter.whenToUse !== undefined ? { whenToUse: frontmatter.whenToUse } : {}),
-      modelInvocable: frontmatter.disableModelInvocation !== true,
-      userInvocable: frontmatter.userInvocable !== false,
+  } catch (error) {
+    issues.push({
       source,
+      path: root,
+      ...(workspacePath === undefined ? {} : { workspacePath }),
+      message: error instanceof Error ? error.message : String(error),
     })
   }
 }
@@ -162,16 +200,26 @@ function scanRoot(root: string, source: ImportTarget, out: Map<string, SkillList
  * rank at discovery time). Display order groups by source, then name.
  * @param workspacePaths - canonical paths of the registered workspaces.
  */
-export function listSkills(workspacePaths: readonly string[]): SkillListEntry[] {
+export function listSkills(workspacePaths: readonly string[]): { skills: SkillListEntry[]; issues: SkillListIssue[] } {
   const rows: SkillListEntry[] = []
+  const issues: SkillListIssue[] = []
   for (const target of SCAN_ORDER) {
-    const out = new Map<string, SkillListEntry>()
-    for (const path of target === 'user' ? [dshHomeDir()] : workspacePaths) {
-      scanRoot(skillRoot(target, path), target, out)
+    if (!isProjectTarget(target)) {
+      const out = new Map<string, SkillListEntry>()
+      scanRoot(skillRoot(target, ''), target, undefined, out, issues)
+      rows.push(...out.values())
+      continue
     }
-    rows.push(...out.values())
+    for (const workspacePath of workspacePaths) {
+      const out = new Map<string, SkillListEntry>()
+      scanRoot(skillRoot(target, workspacePath), target, workspacePath, out, issues)
+      rows.push(...out.values())
+    }
   }
-  return rows.sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    skills: rows.sort((a, b) => a.name.localeCompare(b.name)),
+    issues,
+  }
 }
 
 /**
@@ -184,7 +232,7 @@ export function listSkills(workspacePaths: readonly string[]): SkillListEntry[] 
  */
 export function deleteSkillFile(name: string, source: ImportTarget, workspacePath?: string): boolean {
   if (!KEBAB_CASE.test(name)) throw new Error('技能名必须是 kebab-case（小写字母、数字、短横线）')
-  if (source !== 'user' && workspacePath === undefined) {
+  if (isProjectTarget(source) && workspacePath === undefined) {
     throw new Error('项目来源需要 workspacePath（当前工作区路径）')
   }
   const root = skillRoot(source, workspacePath ?? '')
@@ -290,7 +338,7 @@ export function scanBatch(request: BatchScanRequest): BatchScanSession {
   if (!isSkillsRoot && !isSkillDirectory) {
     throw new Error('批量导入仅支持名为 skills 的目录或其中的单个技能目录')
   }
-  if (request.target !== 'user' && request.workspacePath === undefined) throw new Error('项目目标需要 workspacePath（当前工作区路径）')
+  if (isProjectTarget(request.target) && request.workspacePath === undefined) throw new Error('项目目标需要 workspacePath（当前工作区路径）')
   const sources = batchSources(sourcePath)
   if (sources.length === 0) throw new Error('所选目录中没有找到可导入的技能')
   if (sources.length > MAX_BATCH_SKILLS) throw new Error(`一次最多扫描 ${MAX_BATCH_SKILLS} 个技能`)

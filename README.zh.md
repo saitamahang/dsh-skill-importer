@@ -83,7 +83,7 @@ npx @deepseek-ai/dsh web
 npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
 ```
 
-更新只会替换插件包，不会删除 `.agents/skills` 中的项目技能或 `~/.dsh/skills` 中的全局技能。更新后请重启 dsh Web。
+更新只会替换插件包，不会删除 `.dsh/skills`、`.agents/skills`、`~/.dsh/skills` 或 `~/.agents/skills` 中的技能。更新后请重启 dsh Web。
 
 查看 npm 上的最新版本：
 
@@ -141,12 +141,16 @@ Markdown 文件或 URL
 skills/change → 热刷新
 ```
 
-所有 POST 路由都会校验 `Origin`，仅接受 loopback 来源（`127.0.0.1` 或 `localhost`）。写入范围固定为两个标准目录：
+所有 POST 路由都会校验 `Origin`，仅接受 loopback 来源（`127.0.0.1` 或 `localhost`）。写入范围固定为四个 DSH 默认可写目录：
 
-| 范围 | 目录 |
-| :--- | :--- |
-| 项目 | `.agents/skills` |
-| 全局 | `~/.dsh/skills` |
+| 可写目标顺序 | 范围 | 目录 |
+| :---: | :--- | :--- |
+| 1/4 | DSH 项目 | `.dsh/skills` |
+| 2/4 | 通用项目 | `.agents/skills` |
+| 3/4 | DSH 全局 | `~/.dsh/skills` |
+| 4/4 | 通用全局 | `~/.agents/skills` |
+
+数字越小优先级越高，这里仅比较四个可写导入目标。DSH 配置的 `customSkillDirs` 在完整发现顺序中位于项目与全局目录之间，但由于没有统一的写入位置，不作为插件导入目标；Bundled 技能属于 DSH 随附内容，也不允许插件覆盖。
 
 ## 开发
 

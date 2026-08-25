@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-importer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Web UI plugin for DeepSeek Harness: import skills from local Markdown files or URLs into the skill roots the harness discovers automatically",
   "type": "module",
   "main": "lib/index.js",
@@ -48,6 +48,8 @@
     "test:batch": "node --experimental-strip-types tests/batch-import.test.mjs",
     "test:atomic-delete": "node --experimental-strip-types tests/atomic-skill-delete.test.mjs",
     "test:update": "node --experimental-strip-types tests/update.test.mjs",
+    "test:list": "node --experimental-strip-types tests/skill-list.test.mjs",
+    "test:effective": "node --experimental-strip-types tests/effective-skills.test.mjs",
     "watch": "tsdown --watch"
   },
   "license": "MIT",

@@ -83,7 +83,7 @@ Existing users can run the same command to update:
 npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@latest
 ```
 
-Updating replaces only the plugin package. It does not remove project skills in `.agents/skills` or global skills in `~/.dsh/skills`. Restart dsh Web after updating.
+Updating replaces only the plugin package. It does not remove skills from `.dsh/skills`, `.agents/skills`, `~/.dsh/skills`, or `~/.agents/skills`. Restart dsh Web after updating.
 
 Check the latest published version:
 
@@ -141,12 +141,16 @@ Markdown file or URL
 skills/change → hot refresh
 ```
 
-POST routes verify the `Origin` header and only accept loopback sources (`127.0.0.1` or `localhost`). Writes are restricted to these standard roots:
+POST routes verify the `Origin` header and only accept loopback sources (`127.0.0.1` or `localhost`). Writes are restricted to four default writable DSH roots:
 
-| Scope | Directory |
-| :--- | :--- |
-| Project | `.agents/skills` |
-| Global | `~/.dsh/skills` |
+| Writable target order | Scope | Directory |
+| :---: | :--- | :--- |
+| 1/4 | DSH project | `.dsh/skills` |
+| 2/4 | Shared project | `.agents/skills` |
+| 3/4 | DSH global | `~/.dsh/skills` |
+| 4/4 | Shared global | `~/.agents/skills` |
+
+Lower numbers win among these four writable import targets. DSH-configured `customSkillDirs` sit between project and global roots in the full discovery order, but have no single stable write destination and therefore are not import targets. Bundled skills ship with DSH and cannot be overwritten by the plugin.
 
 ## Development
 

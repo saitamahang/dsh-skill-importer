@@ -36,22 +36,47 @@ export type SkillsPickerProps =
   & InjectFace<SkillImporterInjected>
 
 /** One row of the composer skill picker. */
-export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, actions }: SkillsPickerProps): ReactNode {
-  const skills = useSkills((value) => value)
+export function SkillsPicker({ t, sessionId, useInput, inputActions, actions }: SkillsPickerProps): ReactNode {
   const input = useInput((value) => value.draft)
 
+  const [skills, setSkills] = useState<Awaited<ReturnType<typeof actions.refreshSkillsForSession>>>([])
   const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef(input)
   const skillNamesRef = useRef<readonly string[]>([])
   const caretFrameRef = useRef<number>()
 
-  // Refresh the catalog while the picker is visible, so newly imported skills
-  // appear without a page reload.
+  // Load once so the trigger can render, refresh on every open using the
+  // session's latest cwd, then keep an open picker synchronized without
+  // leaving a permanent background poll behind.
   useEffect(() => {
-    void actions.refreshSkills().catch(() => {})
-  }, [actions])
+    let cancelled = false
+    const refresh = (showLoading: boolean): void => {
+      if (showLoading) setLoading(true)
+      void actions.refreshSkillsForSession(sessionId).then(
+        (rows) => {
+          if (!cancelled) {
+            setSkills(rows)
+            setLoading(false)
+          }
+        },
+        () => {
+          if (!cancelled) {
+            setSkills([])
+            setLoading(false)
+          }
+        },
+      )
+    }
+    refresh(true)
+    const timer = open ? window.setInterval(() => refresh(false), 2000) : undefined
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearInterval(timer)
+    }
+  }, [actions, sessionId, open])
 
   // Close on outside pointer-down; reset the filter each open.
   useEffect(() => {
@@ -66,7 +91,8 @@ export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, 
     if (open) setQuery('')
   }, [open])
 
-  // Nothing to pick without skills.
+  // Keep the entry stable even when the current project has no skills; the
+  // open panel owns the loading and empty states instead of disappearing.
   const usable = skills.filter((skill) => skill.userInvocable)
   draftRef.current = input
   skillNamesRef.current = usable.map((skill) => skill.name)
@@ -145,8 +171,6 @@ export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, 
     }
   }, [inputActions])
 
-  if (usable.length === 0) return null
-
   const filtered = query.trim().length === 0
     ? usable
     : usable.filter((skill) => skill.name.toLowerCase().includes(query.trim().toLowerCase()))
@@ -170,7 +194,10 @@ export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, 
         type="button"
         aria-label={t('pickerLabel')}
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!open) setLoading(true)
+          setOpen((value) => !value)
+        }}
         style={triggerStyle}
       >
         <span style={triggerIconStyle} aria-hidden="true"><IconChecklistOutline14 /></span>
@@ -190,17 +217,20 @@ export function SkillsPicker({ t, sessionId, useSkills, useInput, inputActions, 
             placeholder={t('pickerSearchPlaceholder')}
             style={searchStyle}
           />
-          <ul style={listStyle}>
-            {filtered.map((skill) => (
-              <li key={skill.name}>
-                <button type="button" onClick={() => onSelect(skill.name)} style={rowStyle}>
-                  <span style={avatarStyle} aria-hidden="true">{skill.name.charAt(0).toUpperCase()}</span>
-                  <span style={rowLabelStyle}>{skill.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {filtered.length === 0 ? (
+          {loading ? <div style={emptyStyle}>{t('pickerLoading')}</div> : <ul style={listStyle}>
+              {filtered.map((skill) => (
+                <li key={skill.name}>
+                  <button type="button" onClick={() => onSelect(skill.name)} style={rowStyle}>
+                    <span style={avatarStyle} aria-hidden="true">{skill.name.charAt(0).toUpperCase()}</span>
+                    <span style={rowCopyStyle}>
+                      <span style={rowLabelStyle}>{skill.name}</span>
+                      <span style={rowDetailStyle}>{skill.source === 'project-dsh' ? t('pickerSourceProjectDsh') : skill.source === 'project-agents' ? t('pickerSourceProjectAgents') : skill.source === 'user-dsh' ? t('pickerSourceUserDsh') : t('pickerSourceUserAgents')}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>}
+          {!loading && filtered.length === 0 ? (
             <div style={emptyStyle}>{t('pickerEmpty')}</div>
           ) : null}
         </div>
@@ -325,6 +355,23 @@ const rowLabelStyle: CSSProperties = {
   whiteSpace: 'nowrap',
   minWidth: 0,
   overflow: 'hidden',
+}
+
+const rowCopyStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+  flex: 1,
+  lineHeight: '18px',
+}
+
+const rowDetailStyle: CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: 'var(--dsw-alias-label-caption)',
+  fontSize: 11,
+  lineHeight: '16px',
 }
 
 const emptyStyle: CSSProperties = {

@@ -26,7 +26,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-skill'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
-  commitBatch, deleteSkillFile, listSkills, originAllowed, readJsonBody,
+  commitBatch, deleteSkillFile, isProjectTarget, listSkills, originAllowed, readJsonBody,
   resolveImport, scanBatch, sendError, sendJson,
 } from './server.ts'
 import type { BatchScanSession } from './server.ts'
@@ -50,6 +50,12 @@ export const ROUTES = {
 
 /** Required services: the harness web server's route registry and the workspace registry. */
 export const inject = ['webServer', 'workspaceRegistry']
+
+const IMPORT_TARGETS = new Set<ImportTarget>(['project-dsh', 'project-agents', 'user-dsh', 'user-agents'])
+
+function isImportTarget(value: unknown): value is ImportTarget {
+  return typeof value === 'string' && IMPORT_TARGETS.has(value as ImportTarget)
+}
 
 const handle = (fn: (req: IncomingMessage, res: ServerResponse) => Promise<void>): WebRoute['handler'] =>
   (req, res) => {
@@ -85,8 +91,13 @@ export function apply(ctx: Context): void {
     {
       kind: 'exact',
       path: ROUTES.list,
-      handler: handle(async (_req, res) => {
-        sendJson(res, 200, { ok: true, skills: listSkills(projectPaths()) })
+      handler: handle(async (req, res) => {
+        const url = new URL(req.url ?? ROUTES.list, 'http://localhost')
+        const requested = url.searchParams.get('workspacePath')
+        const globalOnly = url.searchParams.get('scope') === 'global'
+        const workspacePaths = globalOnly ? [] : requested === null ? projectPaths() : [requireRegisteredWorkspace(requested)]
+        const result = listSkills(workspacePaths)
+        sendJson(res, 200, { ok: true, ...result })
       }),
     },
     {
@@ -123,8 +134,7 @@ export function apply(ctx: Context): void {
           return
         }
         const body = await readJsonBody(req) as Partial<ImportRequest>
-        if (typeof body.name !== 'string' || typeof body.content !== 'string'
-          || body.target !== 'user' && body.target !== 'project-agents') {
+        if (typeof body.name !== 'string' || typeof body.content !== 'string' || !isImportTarget(body.target)) {
           sendError(res, 400, '请求缺少 name / content / target 字段')
           return
         }
@@ -142,8 +152,7 @@ export function apply(ctx: Context): void {
           return
         }
         const body = await readJsonBody(req) as Partial<ImportUrlRequest>
-        if (typeof body.name !== 'string' || typeof body.url !== 'string'
-          || body.target !== 'user' && body.target !== 'project-agents') {
+        if (typeof body.name !== 'string' || typeof body.url !== 'string' || !isImportTarget(body.target)) {
           sendError(res, 400, '请求缺少 name / url / target 字段')
           return
         }
@@ -161,8 +170,7 @@ export function apply(ctx: Context): void {
           return
         }
         const body = await readJsonBody(req) as Partial<DeleteRequest>
-        if (typeof body.name !== 'string'
-          || body.source !== 'user' && body.source !== 'project-agents') {
+        if (typeof body.name !== 'string' || !isImportTarget(body.source)) {
           sendError(res, 400, '请求缺少 name / source 字段')
           return
         }
@@ -180,8 +188,7 @@ export function apply(ctx: Context): void {
           return
         }
         const body = await readJsonBody(req) as Partial<BatchScanRequest>
-        if (typeof body.sourcePath !== 'string'
-          || body.target !== 'user' && body.target !== 'project-agents') {
+        if (typeof body.sourcePath !== 'string' || !isImportTarget(body.target)) {
           sendError(res, 400, '请求缺少 sourcePath / target 字段')
           return
         }
@@ -238,8 +245,13 @@ export function apply(ctx: Context): void {
    * from the host process cwd, which may differ from the user's workspace).
    */
   function requireWorkspace(target: ImportTarget, candidate: unknown): string | undefined {
-    if (target === 'user') return undefined
+    if (!isProjectTarget(target)) return undefined
     if (typeof candidate !== 'string') throw new Error('项目目标需要 workspacePath（当前工作区路径）')
+    if (!projectPaths().includes(candidate)) throw new Error('workspacePath 不是已注册的工作区')
+    return candidate
+  }
+
+  function requireRegisteredWorkspace(candidate: string): string {
     if (!projectPaths().includes(candidate)) throw new Error('workspacePath 不是已注册的工作区')
     return candidate
   }

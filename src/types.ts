@@ -5,7 +5,7 @@
  */
 
 /** Where the imported skill file should land. */
-export type ImportTarget = 'user' | 'project-agents'
+export type ImportTarget = 'project-dsh' | 'project-agents' | 'user-dsh' | 'user-agents'
 
 /** One installed skill row served by `/skill-importer/list`. */
 export interface SkillListEntry {
@@ -19,8 +19,18 @@ export interface SkillListEntry {
   readonly modelInvocable: boolean
   /** False marks a model-only skill (`user-invocable: false`). */
   readonly userInvocable: boolean
-  /** Skill root (`'project-agents'` or `'user'`). */
+  /** Writable DSH skill root that owns this copy. */
   readonly source: ImportTarget
+  /** Exact registered workspace that owns a project-scoped copy. */
+  readonly workspacePath?: string
+}
+
+/** One skill root or entry that could not be inspected without failing the whole list. */
+export interface SkillListIssue {
+  readonly source: ImportTarget
+  readonly path: string
+  readonly workspacePath?: string
+  readonly message: string
 }
 
 /** File-import request body. */
@@ -36,7 +46,7 @@ export interface ImportRequest {
 /** Delete-request body. */
 export interface DeleteRequest {
   readonly name: string
-  /** Which root the copy lives in (`'project-agents'` or `'user'`). */
+  /** Which writable DSH root owns this copy. */
   readonly source: ImportTarget
   /** Canonical workspace path for project sources (host-validated). */
   readonly workspacePath?: string
@@ -107,6 +117,7 @@ export interface BatchCommitResponse {
 export interface SkillListResponse {
   readonly ok: true
   readonly skills: readonly SkillListEntry[]
+  readonly issues: readonly SkillListIssue[]
 }
 
 /** `/skill-importer/update-status` response. */
