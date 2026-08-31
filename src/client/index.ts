@@ -78,8 +78,81 @@ export interface SkillImporterInjected {
   }
 }
 
-/** Required services (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'connection']
+/** Every client service used during apply is explicit; alpha DSH no longer tolerates load-order access. */
+export const inject = [
+  'slots',
+  'locale',
+  'connection',
+  'remote',
+  'remote.skills',
+  'remote.directoryPicker',
+  'inputTriggers',
+  'commandUi',
+  'sessions',
+  'conversation',
+]
+
+type CompatSkillApi = {
+  list: (...args: unknown[]) => Promise<unknown>
+}
+
+type CompatRemote = {
+  skills?: CompatSkillApi
+  directoryPicker?: {
+    pick: () => Promise<
+      | { ok: true; value: string | null }
+      | { ok: false; error: { message: string } }
+    >
+  }
+}
+
+type CompatLegacyApi = {
+  skills?: CompatSkillApi
+  host?: {
+    pickDirectory: (request: Record<string, never>) => Promise<{
+      result:
+        | { ok: true; value: { path: string | null } }
+        | { ok: false; error: { message: string } }
+    }>
+  }
+}
+
+const popupEscapeHandlers = new WeakMap<HTMLInputElement, (event: KeyboardEvent) => void>()
+
+/** Restore keyboard ownership when DSH opens this plugin's popup from the composer. */
+function focusSkillsPopupSearch(options: { onEscape: () => void; resetActive: () => void }): void {
+  const focus = (): void => {
+    for (const input of document.querySelectorAll<HTMLInputElement>('input[type="text"]')) {
+      let node: HTMLElement | null = input
+      while (node !== null) {
+        if ((node.getAttribute('aria-label') ?? '').toLowerCase().includes('skills')) {
+          const previous = popupEscapeHandlers.get(input)
+          if (previous !== undefined) input.removeEventListener('keydown', previous)
+          const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key !== 'Escape') return
+            // The official popup dismisses during bubbling. Restore composer
+            // focus afterwards because its private focus hook is not reliable
+            // for a third-party popup contribution in this alpha release.
+            window.setTimeout(options.onEscape, 0)
+          }
+          popupEscapeHandlers.set(input, onKeyDown)
+          input.addEventListener('keydown', onKeyDown)
+          input.focus({ preventScroll: true })
+          // A stationary pointer can fire row mouse-enter as the overlay mounts
+          // and replace the controller's initial index 0. Reassert index 0 after
+          // the ready render; later real pointer movement still works normally.
+          options.resetActive()
+          return
+        }
+        node = node.parentElement
+      }
+    }
+  }
+  // Opening the shell and resolving its async rows are separate React commits.
+  // Run after both so the composer's Enter transaction cannot steal focus back.
+  window.requestAnimationFrame(focus)
+  window.setTimeout(focus, 0)
+}
 
 /** Same-origin route literals (mirrors the host half's ROUTES). */
 const ROUTES = {
@@ -157,11 +230,13 @@ export function apply(ctx: ClientContext): void {
   // cached, so rejecting the call hides the group for good (the lexicon
   // contribution below still powers `/name` highlighting).
   const connection = ctx.get('connection') as ConnectionHandle
-  const skillsApi = connection.api.skills
-  const originalList = skillsApi.list.bind(skillsApi)
-  skillsApi.list = ((_request, _signal) => {
-    return Promise.reject(new Error('skill group hidden: use the composer skill picker or /skills'))
-  }) as typeof originalList
+  const legacyApi = (connection as unknown as { api?: CompatLegacyApi }).api
+  const remote = (ctx as unknown as { remote?: CompatRemote }).remote
+    ?? ctx.get('remote') as CompatRemote | undefined
+  const skillsApi = remote?.skills ?? legacyApi?.skills
+  if (skillsApi !== undefined) {
+    skillsApi.list = () => Promise.reject(new Error('skill group hidden: use the composer skill picker or /skills'))
+  }
 
   // Text-reference lexicon: keeps `/name` highlighting working in every mode.
   // ui-skill's own lexicon dies in picker mode (its skill.list fetch fails),
@@ -207,8 +282,7 @@ export function apply(ctx: ClientContext): void {
   // from the composer tool-row dropdown.
   const commandUi = ctx.get('commandUi') as CommandUiContract
   const sessions = ctx.get('sessions') as unknown as ISessions
-  const conversation = ctx.get('conversation')
-  if (commandUi !== undefined && sessions !== undefined && conversation !== undefined) {
+  if (commandUi !== undefined && sessions !== undefined) {
     ctx.effect(() => {
       const unregister = commandUi.register({
         name: 'skills',
@@ -218,13 +292,34 @@ export function apply(ctx: ClientContext): void {
           kind: 'popupSelect',
           async options(session, _signal) {
             const rows = await refreshSkillsForSession(session.sessionId)
+            const restoreComposerFocus = (): void => {
+              const actx = sessions.scope(session.sessionId)
+              if (actx === undefined) return
+              const conversation = actx.get('conversation')
+              if (conversation === undefined) return
+              const draft = conversation.input.for(actx).state.getSnapshot().draft
+              requestComposerFocus({
+                sessionId: session.sessionId,
+                expectedDraft: draft,
+                caret: draft.length,
+              })
+            }
+            const resetActive = (): void => {
+              const actx = sessions.scope(session.sessionId)
+              if (actx === undefined) return
+              const popup = commandUi.popupFor(actx) as { highlight?: (index: number) => void }
+              popup.highlight?.(0)
+            }
+            focusSkillsPopupSearch({ onEscape: restoreComposerFocus, resetActive })
             return rows
               .filter((skill) => skill.userInvocable)
               .map((skill) => ({ id: skill.name, label: `${skill.name} · ${sourceLabel(skill.source)}` }))
           },
           onSelect(option, session) {
             const actx = sessions.scope(session.sessionId)
-            if (actx === undefined) return
+            if (actx === undefined) throw new Error('this session is no longer available')
+            const conversation = actx.get('conversation')
+            if (conversation === undefined) throw new Error('conversation input is unavailable')
             const input = conversation.input.for(actx)
             // The popup was opened from a leading command token, which may be
             // the full `/skills` (typed + enter) or a prefix the menu matched
@@ -234,12 +329,21 @@ export function apply(ctx: ClientContext): void {
             const rest = input.state.getSnapshot().draft.replace(/^\s*\/[a-zA-Z][a-zA-Z0-9-]*\s*/, '')
             const prefix = `/${option.id} `
             const nextDraft = `${prefix}${rest}`
-            input.setDraft(nextDraft)
-            requestComposerFocus({
-              sessionId: session.sessionId,
-              expectedDraft: nextDraft,
-              caret: prefix.length,
-            })
+            // popupSelect consumes the open-time `/sk…` token after onSelect
+            // settles. Defer our replacement until that native transaction has
+            // closed, otherwise the token CAS and this whole-draft write race.
+            window.setTimeout(() => {
+              const liveScope = sessions.scope(session.sessionId)
+              if (liveScope === undefined) return
+              const liveConversation = liveScope.get('conversation')
+              if (liveConversation === undefined) return
+              liveConversation.input.for(liveScope).setDraft(nextDraft)
+              requestComposerFocus({
+                sessionId: session.sessionId,
+                expectedDraft: nextDraft,
+                caret: prefix.length,
+              })
+            }, 0)
           },
         },
       })
@@ -286,7 +390,13 @@ export function apply(ctx: ClientContext): void {
   }
 
   const pickDirectory = async (): Promise<string | null> => {
-    const response = await connection.api.host.pickDirectory({})
+    if (remote?.directoryPicker !== undefined) {
+      const result = await remote.directoryPicker.pick()
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    }
+    if (legacyApi?.host === undefined) throw new Error('当前 DSH 未提供目录选择能力')
+    const response = await legacyApi.host.pickDirectory({})
     if (!response.result.ok) throw new Error(response.result.error.message)
     return response.result.value.path
   }

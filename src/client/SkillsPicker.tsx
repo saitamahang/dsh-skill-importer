@@ -18,15 +18,69 @@ import type { SkillImporterInjected } from './index.ts'
 import { atomicSkillArrow, atomicSkillBackspace } from './atomicSkillDelete.ts'
 import { COMPOSER_FOCUS_EVENT, type ComposerFocusRequest } from './composerFocus.ts'
 
-/** Find the one composer textarea owned by the picker nearest in the slot tree. */
-function composerTextareaFor(root: HTMLElement | null): HTMLTextAreaElement | undefined {
+type ComposerInputElement = HTMLTextAreaElement | HTMLDivElement
+
+/** Find the one legacy textarea or Lexical contenteditable owned by this picker. */
+function composerInputFor(root: HTMLElement | null): ComposerInputElement | undefined {
   let node = root?.parentElement
   while (node !== null && node !== undefined) {
-    const textareas = node.querySelectorAll('textarea')
-    if (textareas.length > 0) return textareas.length === 1 ? textareas[0] : undefined
+    const inputs = node.querySelectorAll<HTMLTextAreaElement | HTMLDivElement>('textarea, [data-composer-input]')
+    if (inputs.length > 0) return inputs.length === 1 ? inputs[0] : undefined
     node = node.parentElement
   }
   return undefined
+}
+
+function composerText(input: ComposerInputElement): string {
+  return input instanceof HTMLTextAreaElement ? input.value : input.textContent ?? ''
+}
+
+function composerCaret(input: ComposerInputElement): { start: number; end: number } | undefined {
+  if (input instanceof HTMLTextAreaElement) {
+    if (input.selectionStart === null || input.selectionEnd === null) return undefined
+    return { start: input.selectionStart, end: input.selectionEnd }
+  }
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount !== 1) return undefined
+  const range = selection.getRangeAt(0)
+  if (!input.contains(range.startContainer) || !input.contains(range.endContainer)) return undefined
+  const offsetOf = (container: Node, offset: number): number => {
+    const prefix = range.cloneRange()
+    prefix.selectNodeContents(input)
+    prefix.setEnd(container, offset)
+    return prefix.toString().length
+  }
+  return { start: offsetOf(range.startContainer, range.startOffset), end: offsetOf(range.endContainer, range.endOffset) }
+}
+
+function setComposerCaret(input: ComposerInputElement, caret: number): void {
+  input.focus({ preventScroll: true })
+  if (input instanceof HTMLTextAreaElement) {
+    input.setSelectionRange(caret, caret)
+    return
+  }
+  const range = document.createRange()
+  let remaining = caret
+  const walker = document.createTreeWalker(input, NodeFilter.SHOW_TEXT)
+  let text = walker.nextNode()
+  while (text !== null) {
+    const length = text.textContent?.length ?? 0
+    if (remaining <= length) {
+      range.setStart(text, remaining)
+      range.collapse(true)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      return
+    }
+    remaining -= length
+    text = walker.nextNode()
+  }
+  range.selectNodeContents(input)
+  range.collapse(false)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
 }
 
 /** Props the renderer binds for the picker. */
@@ -98,13 +152,12 @@ export function SkillsPicker({ t, sessionId, useInput, inputActions, actions }: 
   skillNamesRef.current = usable.map((skill) => skill.name)
 
   const scheduleComposerFocus = (expectedDraft: string, caret: number): void => {
-    const textarea = composerTextareaFor(rootRef.current)
+    const input = composerInputFor(rootRef.current)
     if (caretFrameRef.current !== undefined) window.cancelAnimationFrame(caretFrameRef.current)
     caretFrameRef.current = window.requestAnimationFrame(() => {
       caretFrameRef.current = undefined
-      if (textarea === undefined || !textarea.isConnected || textarea.value !== expectedDraft) return
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(caret, caret)
+      if (input === undefined || !input.isConnected || composerText(input) !== expectedDraft) return
+      setComposerCaret(input, caret)
     })
   }
 
@@ -129,12 +182,14 @@ export function SkillsPicker({ t, sessionId, useInput, inputActions, actions }: 
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.shiftKey && event.key !== 'Backspace') return
-      const textarea = event.target
-      if (!(textarea instanceof HTMLTextAreaElement) || document.activeElement !== textarea) return
-      if (composerTextareaFor(rootRef.current) !== textarea || textarea.value !== draftRef.current) return
-      const start = textarea.selectionStart
-      const end = textarea.selectionEnd
-      if (start === null || end === null || start !== end) return
+      const target = event.target
+      if (!(target instanceof Node)) return
+      const input = composerInputFor(rootRef.current)
+      if (input === undefined || document.activeElement !== input || !input.contains(target)) return
+      if (composerText(input) !== draftRef.current) return
+      const selection = composerCaret(input)
+      if (selection === undefined || selection.start !== selection.end) return
+      const start = selection.start
 
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         const caret = atomicSkillArrow(
@@ -146,7 +201,7 @@ export function SkillsPicker({ t, sessionId, useInput, inputActions, actions }: 
         if (caret === undefined) return
         event.preventDefault()
         event.stopPropagation()
-        textarea.setSelectionRange(caret, caret)
+        setComposerCaret(input, caret)
         return
       }
 
@@ -159,8 +214,8 @@ export function SkillsPicker({ t, sessionId, useInput, inputActions, actions }: 
       if (caretFrameRef.current !== undefined) window.cancelAnimationFrame(caretFrameRef.current)
       caretFrameRef.current = window.requestAnimationFrame(() => {
         caretFrameRef.current = undefined
-        if (!textarea.isConnected || document.activeElement !== textarea || textarea.value !== edit.draft) return
-        textarea.setSelectionRange(edit.caret, edit.caret)
+        if (!input.isConnected || document.activeElement !== input || composerText(input) !== edit.draft) return
+        setComposerCaret(input, edit.caret)
       })
     }
 

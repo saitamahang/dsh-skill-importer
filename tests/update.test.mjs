@@ -14,7 +14,7 @@ test('orders prereleases before stable releases', () => {
 })
 
 test('reads package version and produces an exact update command', () => {
-  assert.equal(currentVersion(), '0.2.4')
+  assert.equal(currentVersion(), '0.2.5')
   assert.equal(
     updateCommand('0.2.4'),
     'npx @deepseek-ai/dsh plugin --profile web add dsh-skill-importer@0.2.4',
